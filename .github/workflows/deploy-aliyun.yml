@@ -13,10 +13,10 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: 22
           cache: npm
@@ -34,7 +34,7 @@ jobs:
           cp -a .next/static .next/standalone/.next/static
           cp -a public .next/standalone/public
           tar -czf release.tar.gz -C .next/standalone .
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: libretv-${{ github.sha }}
           path: release.tar.gz
@@ -46,7 +46,7 @@ jobs:
     timeout-minutes: 10
     environment: production
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v7
         with:
           name: libretv-${{ github.sha }}
       - name: Upload and activate

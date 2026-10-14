@@ -32,7 +32,7 @@
 3. 在 GitHub 仓库 `YangGuang-Cloud/LibreTV` 的 Settings → Environments 创建 `production`：
 
    - Environment variable `DEPLOY_HOST`：`47.117.118.220`
-   - Environment secret `DEPLOY_SSH_KEY`：专用私钥的完整内容。
+   - Environment secret `DEPLOY_SSH_KEY`：专用私钥文件的 Base64 单行编码（避免网页表单破坏换行），工作流会解码后使用。
    - Environment secret `DEPLOY_KNOWN_HOSTS`：`47.117.118.220 ssh-ed25519 公钥内容`。
      公钥内容取自第 2 步在可信服务器控制台打印的服务器 host key，不是部署账号的公钥。
    - Deployment branches 限定为 `main`。若希望推送后全自动，不设置 required reviewers。

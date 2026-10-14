@@ -60,7 +60,7 @@ jobs:
           [[ "$DEPLOY_HOST" =~ ^[a-zA-Z0-9][a-zA-Z0-9.-]+$ ]] || { echo 'Configure production DEPLOY_HOST'; exit 1; }
           [[ -n "$DEPLOY_KEY" && -n "$KNOWN_HOSTS" ]] || { echo 'Configure production deployment secrets'; exit 1; }
           install -d -m 700 ~/.ssh
-          printf '%s\n' "$DEPLOY_KEY" > ~/.ssh/deploy_key
+          printf '%s' "$DEPLOY_KEY" | base64 --decode > ~/.ssh/deploy_key
           printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
           chmod 600 ~/.ssh/deploy_key ~/.ssh/known_hosts
           trap 'rm -f ~/.ssh/deploy_key' EXIT

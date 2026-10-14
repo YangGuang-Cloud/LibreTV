@@ -64,6 +64,7 @@ const SECONDARY_TABS: Record<PrimaryTab, { id: SecondaryTab; label: string }[]> 
 const TAB_STORAGE_KEY = 'libretv-settings-tab';
 
 export function SourceManagerDrawer({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const managed = useAppStore((s) => s.serverSourceMode);
   const [primary, setPrimary] = useState<PrimaryTab>('sources');
   const [secondary, setSecondary] = useState<Record<PrimaryTab, SecondaryTab>>({
     sources: 'vod',
@@ -106,7 +107,9 @@ export function SourceManagerDrawer({ open, onClose }: { open: boolean; onClose:
     }
   }, [primary, secondary]);
 
-  const current = secondary[primary];
+  const activePrimary = managed && primary === 'sources' ? 'prefs' : primary;
+  const tabs = managed ? PRIMARY_TABS.filter((tab) => tab.id !== 'sources') : PRIMARY_TABS;
+  const current = secondary[activePrimary];
 
   return (
     <Drawer
@@ -116,13 +119,13 @@ export function SourceManagerDrawer({ open, onClose }: { open: boolean; onClose:
       resetScrollKey={current}
       subheader={
         <div className="space-y-2">
-          <TabRow tabs={PRIMARY_TABS} value={primary} onChange={setPrimary} variant="primary" ariaLabel="设置分类" />
+          <TabRow tabs={tabs} value={activePrimary} onChange={setPrimary} variant="primary" ariaLabel="设置分类" />
           {/* 分组下只有一项时无需二级导航，直接展示该面板 */}
-          {SECONDARY_TABS[primary].length > 1 && (
+          {SECONDARY_TABS[activePrimary].length > 1 && (
             <TabRow
-              tabs={SECONDARY_TABS[primary]}
+              tabs={SECONDARY_TABS[activePrimary]}
               value={current}
-              onChange={(id) => setSecondary((prev) => ({ ...prev, [primary]: id }))}
+              onChange={(id) => setSecondary((prev) => ({ ...prev, [activePrimary]: id }))}
               variant="secondary"
               ariaLabel="设置项"
             />
@@ -130,7 +133,7 @@ export function SourceManagerDrawer({ open, onClose }: { open: boolean; onClose:
         </div>
       }
     >
-      {current === 'vod' && <VodSourcesPanel />}
+      {current === 'vod' && !managed && <VodSourcesPanel />}
       {current === 'live' && <LiveSourceManager />}
       {current === 'playback' && <PlaybackPanel />}
       {current === 'image' && <ImagePanel />}

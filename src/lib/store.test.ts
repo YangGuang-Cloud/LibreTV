@@ -8,7 +8,7 @@ vi.mock('./db', () => ({
   saveLiveProbeResults: vi.fn(async () => {}),
 }));
 
-import { isInDisabledSubscription, isSourceDisabled, keyBelongsToSubscription, SOURCE_DISABLE_LADDER, subKeyPrefix, useAppStore } from './store';
+import { isInDisabledSubscription, isSourceDisabled, keyBelongsToSubscription, resolveSource, SOURCE_DISABLE_LADDER, subKeyPrefix, useAppStore } from './store';
 import type { SourceConfig } from './types';
 
 const store = () => useAppStore.getState();
@@ -29,6 +29,14 @@ beforeEach(() => {
 });
 
 describe('subKeyPrefix / keyBelongsToSubscription', () => {
+  it('服务器模式只解析服务器源，不使用同编号本地源或 URL 兜底', () => {
+    const managed = { serverSourceMode: true,
+      customAPIs: [{ key: 'env_0', name: '本地源', url: 'https://local.example/api' }],
+      envSources: [{ key: 'env_0', name: '服务器源', url: 'https://server.example/api' }],
+    };
+    expect(resolveSource(managed, 'env_0')?.name).toBe('服务器源');
+    expect(resolveSource(managed, 'unknown', { url: 'https://fallback.example/api' })).toBeUndefined();
+  });
   it('key 完整形态为 `${prefix}_${i}`，归属判断要求前缀后紧跟分隔符', () => {
     const prefix = subKeyPrefix('https://sub.example.com/list.json');
     expect(prefix.startsWith('sub_')).toBe(true);

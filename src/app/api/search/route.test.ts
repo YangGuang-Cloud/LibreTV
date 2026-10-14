@@ -2,6 +2,8 @@ import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { POST } from './route';
 import { SESSION_COOKIE, signSession } from '@/lib/auth';
 
+vi.mock('node:dns/promises', () => ({ default: { lookup: vi.fn(async () => [{ address: '93.184.216.34', family: 4 }]) } }));
+
 /**
  * 聚合搜索接口单测：跨源聚合、同源去重、精确命中置顶、成人内容过滤、
  * 失败源不影响整体、SSRF 字面量拒绝。上游一律 mock fetch，无真实网络。
@@ -58,9 +60,66 @@ beforeAll(() => {
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
 });
 
 describe('POST /api/search', () => {
+  it.each([null, [], { wd: 123, sources: SOURCES }, { wd: 'x', sources: [null] },
+    { wd: 'x', sources: [{ key: 'x', name: 'x', url: 123 }] },
+    { wd: 'x', sources: SOURCES, filterAdult: 'false' },
+    { wd: 'x', sources: Array.from({ length: 51 }, () => SOURCES[0]) },
+  ])('异常字段返回 400，不产生上游请求：%j', async (body) => {
+    const spy = vi.fn();
+    vi.stubGlobal('fetch', spy);
+    expect((await POST(makeRequest(body))).status).toBe(400);
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  it('同 URL 不同源编号/名称不会复用另一个配置的缓存', async () => {
+    mockUpstream();
+    const wd = '测试剧 缓存身份';
+    // 多词相关性过滤需要全部命中，因此返回测试剧用另一不重叠缓存关键词。
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(cmsList([{ vod_id: 1, vod_name: wd }]))));
+    const first = await POST(makeRequest({ wd, sources: [SOURCES[0]] }));
+    expect((await first.json()).list[0].sourceKey).toBe('a');
+    const changed = { ...SOURCES[0], key: 'other', name: '另一配置' };
+    const second = await POST(makeRequest({ wd, sources: [changed] }));
+    expect((await second.json()).list[0]).toMatchObject({ sourceKey: 'other', sourceName: '另一配置' });
+  });
+
+  it('成人源标记改变后不复用缓存，过滤开启时不返回成人源内容', async () => {
+    const wd = '成人源缓存回归';
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(cmsList([{ vod_id: 1, vod_name: wd }]))));
+    const normal = await POST(makeRequest({ wd, sources: [SOURCES[0]], filterAdult: true }));
+    expect((await normal.json()).list).toHaveLength(1);
+    const adult = await POST(makeRequest({ wd, sources: [{ ...SOURCES[0], isAdult: true }], filterAdult: true }));
+    expect((await adult.json()).list).toEqual([]);
+  });
+
+  it('服务器模式不需要客户端提交源地址，且不信任伪造的 URL', async () => {
+    vi.stubEnv('SOURCE_MODE', 'server');
+    vi.stubEnv('SERVER_DATA_DIR', '/private/tmp/libretv-test-no-config-search');
+    vi.stubEnv('DEFAULT_SOURCES', JSON.stringify([{ name: '服务端源', url: SOURCES[0].url }]));
+    const spy = vi.fn(async (input: RequestInfo | URL) => {
+      void input;
+      return new Response(cmsList([{ vod_id: 1, vod_name: '服务器模式测试' }]));
+    });
+    vi.stubGlobal('fetch', spy);
+    const res = await POST(makeRequest({ wd: '服务器模式测试', sourceKeys: ['env_0'], sources: [{ key: 'env_0', url: 'http://127.0.0.1/evil' }] }));
+    expect(res.status).toBe(200);
+    expect((await res.json()).list[0].sourceName).toBe('服务端源');
+    expect(String(spy.mock.calls[0]?.[0])).toContain('cms-a.example.com');
+    expect((await POST(makeRequest({ wd: 'x', sourceKeys: ['unknown'] }))).status).toBe(400);
+  });
+
+  it('接口地址已有查询参数时保留参数并正确追加搜索字段', async () => {
+    const spy = vi.fn(async (input: RequestInfo | URL) => { void input; return new Response(cmsList([])); });
+    vi.stubGlobal('fetch', spy);
+    await POST(makeRequest({ wd: '参数回归', sources: [{ ...SOURCES[0], url: SOURCES[0].url + '?token=abc' }] }));
+    const url = new URL(String(spy.mock.calls[0]?.[0]));
+    expect(url.searchParams.get('token')).toBe('abc');
+    expect(url.searchParams.get('wd')).toBe('参数回归');
+  });
   it('聚合多源结果：同源去重、成人内容过滤、失败源进 failures', async () => {
     mockUpstream();
     const res = await POST(makeRequest({ wd: '测试剧', sources: SOURCES, filterAdult: true }));

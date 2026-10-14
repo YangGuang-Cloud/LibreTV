@@ -100,6 +100,7 @@ describe('parseDetail', () => {
     };
     const detail = parseDetail(data, source);
     expect(detail.episodes).toHaveLength(2);
+    expect(detail.episodeTitles).toEqual(['第1集', '第2集']);
     expect(detail.videoInfo.title).toBe('三体');
     expect(detail.videoInfo.sourceName).toBe('测试源');
   });
@@ -108,6 +109,15 @@ describe('parseDetail', () => {
     const data = { list: [{ vod_name: 'X', vod_content: '$https://cdn/fall.m3u8' }] };
     const detail = parseDetail(data, source);
     expect(detail.episodes).toEqual(['https://cdn/fall.m3u8']);
+    expect(detail.episodeTitles).toEqual(['']);
+  });
+
+  it('名称与选中的线路、过滤后的地址保持同序，并保留地址中的美元符号', () => {
+    const detail = parseDetail({ list: [{ vod_play_url:
+      '网页$https://cdn/share/1$$$无效$ftp://cdn/no#第01集：开端$https://cdn/1.m3u8?token=a$b#$https://cdn/2.m3u8#山雨欲来$https://cdn/3.m3u8',
+    }] }, source);
+    expect(detail.episodes).toEqual(['https://cdn/1.m3u8?token=a$b', 'https://cdn/2.m3u8', 'https://cdn/3.m3u8']);
+    expect(detail.episodeTitles).toEqual(['第01集：开端', '', '山雨欲来']);
   });
 
   it('空列表抛错', () => {

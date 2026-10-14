@@ -6,8 +6,10 @@
   "license": "AGPL-3.0-or-later",
   "scripts": {
     "dev": "next dev -p 8080",
+    "dev:lan": "next dev -H 0.0.0.0 -p 8080",
     "build": "next build",
     "start": "next start -p 8080",
+    "start:lan": "next start -H 0.0.0.0 -p 8080",
     "lint": "eslint src",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
@@ -24,6 +26,7 @@
     "next": "^15.1.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
+    "undici": "^6.29.0",
     "zustand": "^5.0.2"
   },
   "devDependencies": {

@@ -1,4 +1,5 @@
 import dns from 'node:dns/promises';
+import { isIP } from 'node:net';
 
 /** 去掉 URL.hostname 对 IPv6 附加的方括号（"[::1]" → "::1"） */
 function stripBrackets(host: string): string {
@@ -23,15 +24,28 @@ function toIPv4(ip: string): string | null {
 /** 判断 IP 是否为私有/回环/链路本地/保留地址（SSRF 防护） */
 export function isPrivateIP(ip: string): boolean {
   let v = stripBrackets(ip.trim());
-  v = toIPv4(v) ?? v;
-  if (/^(127\.|0\.0\.0\.0$|::1$|::$|fe80:|fc|fd)/i.test(v)) return true;
-  if (v.startsWith('10.')) return true;
-  if (v.startsWith('192.168.')) return true;
-  if (/^172\.(1[6-9]|2\d|3[01])\./.test(v)) return true;
-  if (v.startsWith('169.254.')) return true; // 链路本地（含云元数据 169.254.169.254）
-  if (v.startsWith('100.64.')) return true; // CGNAT
-  if (v.startsWith('192.0.0.')) return true; // 协议分配块
-  return false;
+  const family = isIP(v);
+  if (!family) return true; // 非地址也不能作为连接目标
+  if (family === 6) {
+    // URL 解析器统一压缩全写 IPv6，避免等价写法绕过规则。
+    v = stripBrackets(new URL(`http://[${v}]/`).hostname).toLowerCase();
+    const mapped = toIPv4(v);
+    if (mapped) return isPrivateIP(mapped);
+    const first = parseInt(v.split(':')[0], 16);
+    // 仅放行全球单播 2000::/3；链路本地、ULA、组播、转换地址等均拒绝。
+    if (!(first >= 0x2000 && first <= 0x3fff)) return true;
+    if (/^2001:(?::|[0-9a-f]{1,2}:|1[0-9a-f]{2}:|db8:)/.test(v)) return true;
+    if (first === 0x2002 || first === 0x3fff) return true;
+    return false;
+  }
+  const [a, b, c] = v.split('.').map(Number);
+  return a === 0 || a === 10 || a === 127 || a >= 224 ||
+    (a === 100 && b >= 64 && b <= 127) ||
+    (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) ||
+    (a === 192 && b === 168) || (a === 192 && b === 0 && (c === 0 || c === 2)) ||
+    (a === 192 && b === 88 && c === 99) ||
+    (a === 198 && (b === 18 || b === 19 || (b === 51 && c === 100))) ||
+    (a === 203 && b === 0 && c === 113);
 }
 
 const BLOCKED_HOSTNAMES = new Set(['localhost', '127.0.0.1', '0.0.0.0', '::1']);
@@ -41,6 +55,7 @@ export function isValidProxyUrl(urlString: string): boolean {
   try {
     const parsed = new URL(urlString);
     if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return false;
+    if (parsed.username || parsed.password) return false;
     const host = stripBrackets(parsed.hostname); // "[::1]" 也要能被黑名单命中
     if (BLOCKED_HOSTNAMES.has(host)) return false;
     if (/^\d{1,3}(\.\d{1,3}){3}$/.test(host) || host.includes(':')) {
@@ -60,9 +75,9 @@ export async function isBlockedByDNS(urlString: string): Promise<boolean> {
       return isPrivateIP(hostname);
     }
     const result = await dns.lookup(hostname, { all: true });
-    return result.some((r) => isPrivateIP(r.address));
+    return result.length === 0 || result.some((r) => isPrivateIP(r.address));
   } catch {
-    return false; // 解析失败不阻断，交给后续请求处理
+    return true; // 无法确定地址安全时拒绝出网
   }
 }
 
@@ -102,6 +117,7 @@ export async function checkLiveUrlAllowed(urlString: string): Promise<UpstreamVe
     if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
       return { ok: false, reason: '直播地址仅支持 http/https 协议' };
     }
+    if (parsed.username || parsed.password) return { ok: false, reason: '直播地址不能包含用户名或密码' };
   } catch {
     return { ok: false, reason: '无效的直播地址' };
   }

@@ -175,6 +175,8 @@ export interface SourceHealthEntry {
 }
 
 interface AppState extends AppSettings {
+  /** 服务器模式下仅使用管理员下发的点播源，不持久化。 */
+  serverSourceMode: boolean;
   /** 部署者通过 DEFAULT_SOURCES 环境变量预置的源（服务端下发，不持久化） */
   envSources: SourceConfig[];
   /** 已向用户展示过并自动勾选过的预置源 key（持久化：用户取消勾选后不再反复勾上） */
@@ -275,6 +277,7 @@ function nextCustomKey(apiList: SourceConfig[]): string {
 export const useAppStore = create<AppState>()(
   persist(
     (set, get) => ({
+      serverSourceMode: false,
       customAPIs: [],
       envSources: [],
       envKeysSeen: [],
@@ -825,12 +828,14 @@ export async function hydrateLiveProbeResults(): Promise<void> {
 
 /** 获取指定 key 的源配置；找不到时支持从 URL 参数兜底构造 */
 export function resolveSource(
-  store: Pick<AppState, 'customAPIs' | 'envSources'>,
+  store: Pick<AppState, 'customAPIs' | 'envSources'> & { serverSourceMode?: boolean },
   key: string,
   fallback?: { url?: string; detail?: string; name?: string }
 ): SourceConfig | undefined {
-  const found = store.customAPIs.find((a) => a.key === key) ?? store.envSources.find((a) => a.key === key);
+  const found = store.serverSourceMode ? store.envSources.find((a) => a.key === key)
+    : store.customAPIs.find((a) => a.key === key) ?? store.envSources.find((a) => a.key === key);
   if (found) return found;
+  if (store.serverSourceMode) return undefined;
   if (fallback?.url) {
     return {
       key,

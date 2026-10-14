@@ -81,6 +81,10 @@ describe('checkPassword', () => {
 });
 
 describe('sessionFromCookieHeader', () => {
+  it('错误的 URL 转义被拒绝而不是抛出异常', () => {
+    expect(sessionFromCookieHeader(`${SESSION_COOKIE}=%`)).toBe(false);
+    expect(sessionFromCookieHeader(`${SESSION_COOKIE}=%E0%A4%A`)).toBe(false);
+  });
   it('含有效会话的 Cookie 头通过', () => {
     const { token } = signSession();
     expect(sessionFromCookieHeader(`${SESSION_COOKIE}=${token}`)).toBe(true);

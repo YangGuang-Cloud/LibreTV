@@ -2,24 +2,27 @@ import { NextResponse } from 'next/server';
 import { guardRequest } from '@/lib/api-guard';
 import { cmsRequestHeaders, filterAdultResults, filterRelevantResults, normalizeTitle, parseSearchList } from '@/lib/cms-parser';
 import { fetchUpstream, getCache, setCache } from '@/lib/fetch-utils';
-import { checkUpstreamAllowed } from '@/lib/ssrf';
 import type { SearchResponse, SearchStreamEvent, SourceConfig, SourceSearchOutcome } from '@/lib/types';
+import { parseSourceConfig, sourceCacheIdentity } from '@/lib/source-config';
+import { resolveServerSources, serverSourceMode } from '@/lib/server-sources';
+import { mapWithConcurrency } from '@/lib/concurrency';
 
 export const runtime = 'nodejs';
 
 interface SearchBody {
   wd: string;
-  sources: SourceConfig[];
+  sources?: SourceConfig[];
+  sourceKeys?: string[];
   filterAdult?: boolean;
 }
 
 /** 搜索结果短缓存：同一关键词 + 同一组源在 TTL 内直接返回（播放页返回搜索页等场景） */
 const SEARCH_CACHE_TTL = 60 * 1000;
 
-/** 缓存键：wd + 成人过滤 + 排序后的源地址集合（直接用完整字符串，避免哈希碰撞串缓存） */
+/** 缓存含源身份与过滤标记，避免同 URL 不同配置之间串结果。 */
 function searchCacheKey(wd: string, sources: SourceConfig[], filterAdult: boolean): string {
-  const urls = sources.map((s) => s.url.replace(/\/+$/, '')).sort().join('|');
-  return `search:${wd}\n${filterAdult ? 1 : 0}\n${urls}`;
+  const identities = sources.map((s) => JSON.stringify(sourceCacheIdentity(s))).sort();
+  return `search:${JSON.stringify([wd, filterAdult, identities])}`;
 }
 
 /**
@@ -56,7 +59,7 @@ function isTimeoutError(err: unknown): boolean {
  * 整源受 SEARCH_SOURCE_TIMEOUT_MS 总死线约束。
  * 旧版在浏览器里打满 N 个请求（暴露用户 IP、无法缓存、超时失控），现全部上移。
  */
-async function searchSource(source: SourceConfig, wd: string): Promise<SourceSearchOutcome> {
+async function searchSource(source: SourceConfig, wd: string, parentSignal: AbortSignal): Promise<SourceSearchOutcome> {
   const start = Date.now();
   const finish = (outcome: Omit<SourceSearchOutcome, 'ms'>): SourceSearchOutcome => ({
     ...outcome,
@@ -66,14 +69,9 @@ async function searchSource(source: SourceConfig, wd: string): Promise<SourceSea
   if (!/^https?:\/\//.test(source.url || '')) {
     return finish({ sourceKey: source.key, ok: false, list: [], error: '无效的源地址' });
   }
-  // 用户可控地址发起服务端请求，必须先过 SSRF 校验（协议白名单 + 内网/保留地址）
-  const verdict = await checkUpstreamAllowed(source.url);
-  if (!verdict.ok) {
-    return finish({ sourceKey: source.key, ok: false, list: [], error: verdict.reason });
-  }
-
   // 死线到点中断该源所有在途分页请求，避免后台继续空耗
   const controller = new AbortController();
+  const signal = AbortSignal.any([controller.signal, parentSignal]);
   let deadlineTimer: ReturnType<typeof setTimeout> | undefined;
   const deadline = new Promise<SourceSearchOutcome>((resolve) => {
     deadlineTimer = setTimeout(() => {
@@ -92,11 +90,14 @@ async function searchSource(source: SourceConfig, wd: string): Promise<SourceSea
 
   const base = source.url.replace(/\/+$/, '');
   const fetchPage = async (page: number) => {
-    const api = `${base}?ac=videolist&wd=${encodeURIComponent(wd)}&pg=${page}`;
-    const res = await fetchUpstream(api, {
+    const api = new URL(base);
+    api.searchParams.set('ac', 'videolist');
+    api.searchParams.set('wd', wd);
+    api.searchParams.set('pg', String(page));
+    const res = await fetchUpstream(api.href, {
       timeoutMs: 8000,
       headers: cmsRequestHeaders(),
-      signal: controller.signal,
+      signal,
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     return res.json();
@@ -109,14 +110,14 @@ async function searchSource(source: SourceConfig, wd: string): Promise<SourceSea
     const rawPageCount = parseInt(String((first as { pagecount?: unknown }).pagecount ?? '1'), 10);
     const pageCount = Math.min(Number.isFinite(rawPageCount) ? Math.max(1, rawPageCount) : 1, SEARCH_MAX_PAGES);
     if (pageCount > 1) {
-      const extraPages = await Promise.all(
-        Array.from({ length: pageCount - 1 }, (_, i) => i + 2).map(async (page) => {
+      const extraPages = await mapWithConcurrency(
+        Array.from({ length: pageCount - 1 }, (_, i) => i + 2), 3, async (page) => {
           try {
             return parseSearchList(await fetchPage(page), source);
           } catch {
             return [];
           }
-        })
+        }, signal,
       );
       list.push(...extraPages.flat());
     }
@@ -199,14 +200,42 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: '请求格式错误' }, { status: 400 });
   }
 
-  const wd = (body.wd || '').trim();
+  if (!body || typeof body !== 'object' || typeof body.wd !== 'string') {
+    return NextResponse.json({ error: '搜索关键词无效' }, { status: 400 });
+  }
+  const wd = body.wd.trim();
   if (!wd || wd.length > 100) {
     return NextResponse.json({ error: '搜索关键词无效' }, { status: 400 });
   }
-  if (!Array.isArray(body.sources) || body.sources.length === 0) {
-    return NextResponse.json({ error: '请至少选择一个点播源' }, { status: 400 });
+  if (body.filterAdult !== undefined && typeof body.filterAdult !== 'boolean') {
+    return NextResponse.json({ error: '搜索过滤配置无效' }, { status: 400 });
   }
-  const sources = body.sources.slice(0, 50);
+  let sources: SourceConfig[];
+  if (serverSourceMode()) {
+    try {
+      const keys: unknown = body.sourceKeys ?? (Array.isArray(body.sources)
+        ? body.sources.map((source) => source?.key) : undefined);
+      sources = await resolveServerSources(keys);
+    } catch {
+      return NextResponse.json({ error: '源配置无效或已更新，请刷新源列表' }, { status: 400 });
+    }
+  } else {
+    if (!Array.isArray(body.sources) || body.sources.length === 0) {
+      return NextResponse.json({ error: '请至少选择一个点播源' }, { status: 400 });
+    }
+    if (body.sources.length > 50) {
+      return NextResponse.json({ error: '搜索配置无效（最多 50 个源）' }, { status: 400 });
+    }
+    const parsed = body.sources.map(parseSourceConfig);
+    if (parsed.some((source) => !source)) {
+      return NextResponse.json({ error: '点播源配置无效' }, { status: 400 });
+    }
+    sources = parsed as SourceConfig[];
+    if (new Set(sources.map((source) => source.key)).size !== sources.length) {
+      return NextResponse.json({ error: '点播源编号重复' }, { status: 400 });
+    }
+  }
+  if (!sources.length) return NextResponse.json({ error: '暂无可用点播源' }, { status: 400 });
   const filterAdult = body.filterAdult !== false;
 
   const cacheKey = searchCacheKey(wd, sources, filterAdult);
@@ -223,8 +252,16 @@ export async function POST(req: Request) {
   }
 
   const isStream = new URL(req.url).searchParams.get('stream') === '1';
+  const requestController = new AbortController();
+  const signal = AbortSignal.any([req.signal, requestController.signal]);
   if (!isStream) {
-    const outcomes = await Promise.all(sources.map((source) => searchSource(source, wd)));
+    let outcomes: SourceSearchOutcome[];
+    try {
+      outcomes = await mapWithConcurrency(sources, 5, (source) => searchSource(source, wd, signal), signal);
+      signal.throwIfAborted();
+    } catch {
+      return NextResponse.json({ error: '搜索已取消' }, { status: 499 });
+    }
     const payload = aggregateOutcomes(outcomes, wd, filterAdult);
     setCache(cacheKey, payload, SEARCH_CACHE_TTL);
     return NextResponse.json(payload);
@@ -232,7 +269,7 @@ export async function POST(req: Request) {
 
   const encoder = new TextEncoder();
   const stream = new ReadableStream<Uint8Array>({
-    async start(controller) {
+    start(controller) {
       let closed = false;
       const send = (event: SearchStreamEvent) => {
         if (closed) return;
@@ -243,24 +280,27 @@ export async function POST(req: Request) {
         }
       };
 
-      // 逐源结算即推送；outcomes 按下标回填保证聚合顺序稳定
-      const outcomes: SourceSearchOutcome[] = new Array(sources.length);
-      await Promise.all(
-        sources.map(async (source, i) => {
-          const outcome = await searchSource(source, wd);
-          outcomes[i] = outcome;
-          send({ type: 'source', ...outcome });
-        })
-      );
-
-      const payload = aggregateOutcomes(outcomes, wd, filterAdult);
-      setCache(cacheKey, payload, SEARCH_CACHE_TTL);
-      send({ type: 'done', list: payload.list, failures: payload.failures });
-      closed = true;
-      try {
-        controller.close();
-      } catch { /* 已断开 */ }
+      // 逐源结算即推送，有界并发同时保留稳定的聚合顺序。
+      void (async () => {
+        const outcomes = await mapWithConcurrency(
+          sources, 5, async (source) => {
+            const outcome = await searchSource(source, wd, signal);
+            send({ type: 'source', ...outcome });
+            return outcome;
+          }, signal,
+        );
+        signal.throwIfAborted();
+        const payload = aggregateOutcomes(outcomes, wd, filterAdult);
+        setCache(cacheKey, payload, SEARCH_CACHE_TTL);
+        send({ type: 'done', list: payload.list, failures: payload.failures });
+        closed = true;
+        try { controller.close(); } catch { /* 已断开 */ }
+      })().catch((error: unknown) => {
+        closed = true;
+        try { controller.error(error); } catch { /* 已取消 */ }
+      });
     },
+    cancel() { requestController.abort(); },
   });
 
   return new Response(stream, {

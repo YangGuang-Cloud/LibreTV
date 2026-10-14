@@ -48,6 +48,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
+  // 登录后及每分钟同步源配置；管理员保存后其他网页无需重新登录。
+  useEffect(() => {
+    if (!verified) return;
+    let cancelled = false;
+    const refresh = async () => {
+      try {
+        const status = await queryClient.fetchQuery({ queryKey: STATUS_QUERY_KEY, queryFn: () => api.status(), staleTime: 0 });
+        if (cancelled) return;
+        if (!status.verified) { setVerified(false); return; }
+        await applyEnvPresets(status);
+      } catch { /* 短暂离线时保留已有配置 */ }
+    };
+    void refresh();
+    const timer = setInterval(() => void refresh(), 60_000);
+    return () => { cancelled = true; clearInterval(timer); };
+  }, [verified, queryClient]);
+
   // 与 Providers 共用同一 query key 与缓存，避免 /api/status 被请求两次
   useEffect(() => {
     let cancelled = false;
@@ -59,6 +76,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setSetupRequired(!s.passwordRequired);
         setVersion(s.version);
         setChecked(true);
+        void applyEnvPresets(s);
       })
       .catch(() => {
         if (!cancelled) setChecked(true);
@@ -97,17 +115,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // 登录前以 401 失败的查询（如豆瓣推荐）需要重新拉取
     queryClient.invalidateQueries();
     toast('验证成功', 'success');
-    // 预置订阅（DEFAULT_SUBSCRIPTIONS）的首屏同步发生在登录之前，会 401 静默失败，
-    // 这里用缓存中的 /api/status 补跑一次（缓存缺失时回落为一次请求）
+    // 登录前状态不包含源配置，必须重新请求，不能复用匿名状态缓存。
     try {
-      const cached = queryClient.getQueryData<AuthStatusResponse>(STATUS_QUERY_KEY);
-      const status =
-        cached ??
-        (await queryClient.fetchQuery<AuthStatusResponse>({
+      const status = await queryClient.fetchQuery<AuthStatusResponse>({
           queryKey: STATUS_QUERY_KEY,
           queryFn: () => api.status(),
           staleTime: 0,
-        }));
+        });
       if (status) await applyEnvPresets(status);
     } catch {
       // 补拉预置数据失败不影响登录后的正常使用

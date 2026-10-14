@@ -41,20 +41,23 @@ export function rewriteM3u8(
   content: string,
   baseUrl: string,
   depth = 0,
-  prefix: string = PROXY_BASE
+  prefix: string = PROXY_BASE,
+  mediaURL?: (url: string) => string
 ): string {
   if (depth > 5) return content;
   const lines = content.split('\n');
   const out = lines.map((line) => {
-    if (line.startsWith('#EXT-X-KEY') || line.startsWith('#EXT-X-MAP')) {
+    if (line.startsWith('#') && line.includes('URI="')) {
       return line.replace(/(URI=")([^"]+)(")/g, (m, p1: string, uri: string, p2: string) => {
         if (isProxiedUri(uri)) return m;
-        return p1 + prefix + encodeURIComponent(makeAbsolute(uri, baseUrl)) + p2;
+        const target = makeAbsolute(uri, baseUrl);
+        return p1 + (mediaURL ? mediaURL(target) : prefix + encodeURIComponent(target)) + p2;
       });
     }
     if (line.startsWith('#') || line.trim() === '') return line;
     if (isProxiedUri(line)) return line;
-    return prefix + encodeURIComponent(makeAbsolute(line, baseUrl));
+    const target = makeAbsolute(line, baseUrl);
+    return mediaURL ? mediaURL(target) : prefix + encodeURIComponent(target);
   });
   return out.join('\n');
 }

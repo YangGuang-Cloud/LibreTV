@@ -1,6 +1,7 @@
 /** 服务端上游请求工具：超时、重试、安全跳转、JSON 解析 */
 
-import { checkLiveUrlAllowed, checkUpstreamAllowed } from './ssrf';
+import { allowLivePrivate, checkLiveUrlAllowed, checkUpstreamAllowed } from './ssrf';
+import { upstreamDispatcher } from './upstream-dispatcher';
 
 export interface FetchOptions extends RequestInit {
   timeoutMs?: number;
@@ -69,13 +70,18 @@ export async function fetchWithSafeRedirects(
     const timer = headerTimeoutMs ? setTimeout(() => controller.abort(), headerTimeoutMs) : null;
     let res: Response;
     try {
-      res = await fetch(current, { ...init, signal: controller.signal, redirect: 'manual' });
+      const fetchInit = {
+        ...init, signal: controller.signal, redirect: 'manual' as const,
+        dispatcher: upstreamDispatcher(allowPrivate && allowLivePrivate()),
+      };
+      res = await fetch(current, fetchInit);
     } finally {
       if (timer) clearTimeout(timer);
     }
     if (!REDIRECT_STATUSES.has(res.status)) return { res, finalUrl: current };
     const location = res.headers.get('location');
     if (!location) return { res, finalUrl: current };
+    await res.body?.cancel();
     current = new URL(location, current).href;
   }
   throw new Error('重定向次数过多');
@@ -89,20 +95,21 @@ export async function fetchUpstream(url: string, options: FetchOptions = {}): Pr
 export async function fetchUpstreamWithMeta(url: string, options: FetchOptions = {}): Promise<FetchResult> {
   const { timeoutMs = 8000, retries = 0, safeRedirects = true, allowPrivate = false, ...init } = options;
   // 外部 signal（调用方的总死线中断）与单次超时合并：任一触发即中断请求
-  const timeoutSignal = AbortSignal.timeout(timeoutMs);
-  const signal = init.signal
-    ? AbortSignal.any([init.signal, timeoutSignal])
-    : timeoutSignal;
   let lastError: unknown;
   for (let attempt = 0; attempt <= retries; attempt++) {
+    init.signal?.throwIfAborted();
+    const timeoutSignal = AbortSignal.timeout(timeoutMs);
+    const signal = init.signal ? AbortSignal.any([init.signal, timeoutSignal]) : timeoutSignal;
     try {
       if (!safeRedirects) {
+        // 即使关闭跳转跟随，也不能关闭出网地址和连接层校验。
+        const verdict = allowPrivate ? await checkLiveUrlAllowed(url) : await checkUpstreamAllowed(url);
+        if (!verdict.ok) throw new Error(verdict.reason);
         const res = await fetch(url, {
-          ...init,
-          signal,
-          redirect: init.redirect ?? 'follow',
+          ...init, signal, redirect: 'manual',
+          ...{ dispatcher: upstreamDispatcher(allowPrivate && allowLivePrivate()) },
         });
-        return { res, finalUrl: res.url || url };
+        return { res, finalUrl: url };
       }
       // 手动逐跳跟随，每一跳重新过 SSRF 校验
       return await fetchWithSafeRedirects(url, { ...init, signal }, { allowPrivate });

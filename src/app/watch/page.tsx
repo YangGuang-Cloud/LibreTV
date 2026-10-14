@@ -1,5 +1,7 @@
 'use client';
 
+import { formatEpisodeLabel, meaningfulEpisodeTitle } from '@/lib/episode-title';
+
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import dynamic from 'next/dynamic';
 import { useRouter, useSearchParams } from 'next/navigation';
@@ -319,17 +321,19 @@ function WatchContent() {
                 <EmptyState variant="plain" title={detailQuery.isError ? '获取剧集失败' : '暂无剧集信息'} />
               )
             ) : (
-              <div className="grid grid-cols-5 lg:grid-cols-4 gap-1.5 max-h-[65vh] overflow-y-auto scrollbar-thin pr-1">
+              <div className={cn('grid gap-1.5 max-h-[65vh] overflow-y-auto scrollbar-thin pr-1', detailQuery.data?.episodeTitles?.some(meaningfulEpisodeTitle) ? 'grid-cols-2 lg:grid-cols-1' : 'grid-cols-5 lg:grid-cols-4')}>
                 {orderedEpisodes.map((realIndex) => (
                   <EpisodeButton
                     key={realIndex}
                     index={realIndex}
+                    title={detailQuery.data?.episodeTitles?.[realIndex]}
                     active={realIndex === currentIndex}
                     onClick={() => goEpisode(realIndex)}
                   />
                 ))}
               </div>
             )}
+            {detailQuery.data?.episodeAttributions?.map((credit) => <a key={credit.url} href={credit.url} target="_blank" rel="noreferrer" className="block text-xs text-accent mt-3">分集资料：{credit.name}</a>)}
             <p className="hidden md:block text-[10px] text-faint mt-3 leading-relaxed">
               快捷键：空格 播放/暂停 · ←/→ 快退/快进 5s · ↑/↓ 音量 · F 全屏 · Alt+←/→ 切换集数
             </p>
@@ -351,7 +355,7 @@ function WatchContent() {
 }
 
 /** 集数按钮：激活时自动滚动进可视区（长剧列表） */
-function EpisodeButton({ index, active, onClick }: { index: number; active: boolean; onClick: () => void }) {
+function EpisodeButton({ index, title, active, onClick }: { index: number; title?: string; active: boolean; onClick: () => void }) {
   const ref = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
@@ -361,10 +365,10 @@ function EpisodeButton({ index, active, onClick }: { index: number; active: bool
   return (
     <button
       ref={ref}
-      className={cn('btn btn-sm !px-1', active ? 'episode-active' : 'btn-ghost')}
+      className={cn('btn btn-sm !px-2 !h-auto min-h-8 py-2 whitespace-normal text-left', active ? 'episode-active' : 'btn-ghost')}
       onClick={onClick}
     >
-      {index + 1}
+      {meaningfulEpisodeTitle(title) ? formatEpisodeLabel(index, title) : index + 1}
     </button>
   );
 }

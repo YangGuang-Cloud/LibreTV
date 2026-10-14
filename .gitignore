@@ -1,5 +1,6 @@
 node_modules/
 .next/
+.data/
 out/
 .env
 .env*.local
@@ -12,3 +13,6 @@ vitest-results.json
 .zcode/
 .codebuddy/
 generated-images/
+
+# Python deployment check cache
+__pycache__/

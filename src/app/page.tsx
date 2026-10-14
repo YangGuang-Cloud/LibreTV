@@ -45,6 +45,7 @@ function HomeContent() {
   const yellowFilter = useAppStore((s) => s.yellowFilter);
   const sourceHealth = useAppStore((s) => s.sourceHealth);
   const subscriptions = useAppStore((s) => s.subscriptions);
+  const serverSourceMode = useAppStore((s) => s.serverSourceMode);
   const [input, setInput] = useState(urlQuery);
   const [detailItem, setDetailItem] = useState<SearchResultItem | null>(null);
   /** 流式搜索中已结算的源（data 就绪前用于增量渲染） */
@@ -65,8 +66,9 @@ function HomeContent() {
   const selectedSources = useMemo(() => {
     // selectedKeys 可能含历史残留的重复 key：按 key 去重，避免同源重复搜索
     const seen = new Set<string>();
-    return selectedKeys
-      .map((key) => resolveSource({ customAPIs, envSources }, key))
+    const candidates = serverSourceMode ? envSources
+      : selectedKeys.map((key) => resolveSource({ customAPIs, envSources }, key));
+    return candidates
       .filter((s): s is NonNullable<typeof s> => {
         if (!s || !validateSourceUrl(s.url) || seen.has(s.key)) return false;
         seen.add(s.key);
@@ -75,8 +77,8 @@ function HomeContent() {
       // 自动停用期内的源不参与搜索（到期自动恢复）
       .filter((s) => !isSourceDisabled({ sourceHealth }, s.key))
       // 所属订阅被整体停用的源同样跳过（无损：各源勾选状态保留，重新启用即恢复）
-      .filter((s) => !isInDisabledSubscription({ subscriptions }, s.key));
-  }, [customAPIs, envSources, selectedKeys, sourceHealth, subscriptions]);
+      .filter((s) => serverSourceMode ? !(yellowFilter && s.isAdult) : !isInDisabledSubscription({ subscriptions }, s.key));
+  }, [customAPIs, envSources, selectedKeys, sourceHealth, subscriptions, serverSourceMode, yellowFilter]);
   const disabledSources = useMemo(
     () => selectedKeys.filter((key) => isSourceDisabled({ sourceHealth }, key)),
     [selectedKeys, sourceHealth]

@@ -9,8 +9,17 @@ import { GlobalDownloadManager } from './download-manager';
 import { useAppStore, hydrateLiveProbeResults } from '@/lib/store';
 import { api, STATUS_QUERY_KEY } from '@/lib/client-api';
 import { applyEnvPresets } from '@/lib/subscription-sync';
+import { usePathname } from 'next/navigation';
 
 export function Providers({ children }: { children: ReactNode }) {
+  const pathname = usePathname();
+  if (pathname === '/admin' || pathname.startsWith('/admin/')) {
+    return <ThemeProvider><ToastProvider>{children}</ToastProvider></ThemeProvider>;
+  }
+  return <ViewerProviders>{children}</ViewerProviders>;
+}
+
+function ViewerProviders({ children }: { children: ReactNode }) {
   const [queryClient] = useState(
     () =>
       new QueryClient({

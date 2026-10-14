@@ -1,0 +1,69 @@
+name: Deploy Aliyun
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: aliyun-production
+  cancel-in-progress: false
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: npm run lint && npm run typecheck && npm test
+      - run: python3 -m unittest discover -s scripts/deploy -p 'test_*.py'
+      - run: npm run build
+        env:
+          DOCKER_BUILD: '1'
+          APP_BUILD_ID: ${{ github.sha }}
+          NEXT_TELEMETRY_DISABLED: '1'
+      - name: Package standalone release
+        run: |
+          mkdir -p .next/standalone/.next
+          cp -a .next/static .next/standalone/.next/static
+          cp -a public .next/standalone/public
+          tar -czf release.tar.gz -C .next/standalone .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: libretv-${{ github.sha }}
+          path: release.tar.gz
+          retention-days: 7
+  deploy:
+    needs: build
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment: production
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: libretv-${{ github.sha }}
+      - name: Upload and activate
+        env:
+          DEPLOY_HOST: ${{ vars.DEPLOY_HOST }}
+          DEPLOY_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$DEPLOY_HOST" =~ ^[a-zA-Z0-9][a-zA-Z0-9.-]+$ ]] || { echo 'Configure production DEPLOY_HOST'; exit 1; }
+          [[ -n "$DEPLOY_KEY" && -n "$KNOWN_HOSTS" ]] || { echo 'Configure production deployment secrets'; exit 1; }
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$DEPLOY_KEY" > ~/.ssh/deploy_key
+          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/deploy_key ~/.ssh/known_hosts
+          trap 'rm -f ~/.ssh/deploy_key' EXIT
+          opts=(-i ~/.ssh/deploy_key -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=15)
+          scp "${opts[@]}" release.tar.gz "libretv-deploy@$DEPLOY_HOST:/var/lib/libretv-deploy/incoming/$GITHUB_SHA.tar.gz"
+          ssh "${opts[@]}" "libretv-deploy@$DEPLOY_HOST" "sudo -n /usr/local/sbin/libretv-deploy $GITHUB_SHA"

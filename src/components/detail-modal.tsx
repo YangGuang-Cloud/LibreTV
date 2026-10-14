@@ -14,6 +14,7 @@ import { copyToClipboard } from '@/lib/clipboard';
 import { EmptyState, ErrorState, LoadingState } from './states';
 import { useFocusTrap } from './use-focus-trap';
 import { Icon } from './icon';
+import { formatEpisodeLabel } from '@/lib/episode-title';
 
 /**
  * 详情弹窗：剧集列表 + 排序 + 复制链接。
@@ -191,6 +192,7 @@ export function DetailModal({ item, onClose }: { item: SearchResultItem | null; 
 
               {episodes.length > 0 ? (
                 <>
+                  {detail?.episodeAttributions?.map((credit) => <a key={credit.url} href={credit.url} target="_blank" rel="noreferrer" className="block text-xs text-accent mb-2">分集资料：{credit.name}</a>)}
                   <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
                     <div className="flex items-center gap-2">
                       <button
@@ -220,7 +222,7 @@ export function DetailModal({ item, onClose }: { item: SearchResultItem | null; 
                           className="btn-ghost btn-sm !px-1 text-center"
                           onClick={() => play(realIndex)}
                         >
-                          {realIndex + 1}
+                          {formatEpisodeLabel(realIndex, detail?.episodeTitles?.[realIndex])}
                         </button>
                       );
                     })}

@@ -29,6 +29,18 @@ function hmac(payload: string): string {
   return crypto.createHmac('sha256', getSecret()).update(payload).digest('hex');
 }
 
+// Media capabilities authorize only one URL, never other APIs or an arbitrary proxy target.
+export function signMediaURL(target: string, expiresAt: number): string {
+  return hmac(`media:v1:${expiresAt}:${target}`);
+}
+
+export function verifyMediaURL(target: string, expires: string | null, signature: string | null): boolean {
+  if (!isPasswordConfigured() || !expires || !/^\d{13}$/.test(expires) || !signature || !/^[a-f0-9]{64}$/.test(signature)) return false;
+  const deadline = Number(expires);
+  if (deadline <= Date.now() || deadline > Date.now() + 6 * 60 * 60 * 1000) return false;
+  return crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(signMediaURL(target, deadline)));
+}
+
 /** 生成签名会话 token：`<expiresAtMs>.<hmac>` */
 export function signSession(): { token: string; expiresAt: number } {
   const expiresAt = Date.now() + SESSION_TTL_MS;
@@ -70,7 +82,11 @@ export function sessionFromCookieHeader(cookieHeader: string | null): boolean {
     if (eq === -1) continue;
     const name = c.slice(0, eq).trim();
     if (name === SESSION_COOKIE) {
-      return verifySession(decodeURIComponent(c.slice(eq + 1).trim()));
+      try {
+        return verifySession(decodeURIComponent(c.slice(eq + 1).trim()));
+      } catch {
+        return false;
+      }
     }
   }
   return false;

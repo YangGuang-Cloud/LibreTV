@@ -66,7 +66,7 @@ services:
 docker compose pull && docker compose up -d
 ```
 
-> ⚠️ **生产部署必须通过 HTTPS 访问**（localhost 除外）：生产模式下会话 cookie 带 `Secure` 标记，浏览器只在 HTTPS（或 localhost）下保存它。因此用 `http://服务器IP:端口` 访问时，会出现"密码正确却无法登录"的现象——登录请求实际成功，但 cookie 被浏览器丢弃。请通过反向代理（Nginx / Caddy / Traefik）或 Cloudflare 等为站点套上 TLS 后再对外提供服务；本地开发用 `localhost` 不受影响。
+> 对外部署请使用 HTTPS，保护访问密码和管理员密码。会话 cookie 的 `Secure` 默认按 `x-forwarded-proto` 自动推导，也可用 `COOKIE_SECURE` 显式覆盖。反向代理应正确设置协议头，并覆盖客户端传入的 IP 转发头，避免登录限流被伪造 IP 绕过。
 
 镜像发布在 GHCR 与 Docker Hub：`ghcr.io/librespark/libretv` 与 `docker.io/bestzwei/libretv`
 （`latest` / `主.次` / 完整版本号三个 tag，`linux/amd64` 与 `linux/arm64` 双架构，
@@ -83,11 +83,16 @@ PASSWORD=your-password npm run build
 PASSWORD=your-password npm start   # 监听 8080
 ```
 
+手机或其他局域网设备连接时，运行 `npm run start:lan`（开发时用 `npm run dev:lan`），明确监听 `0.0.0.0:8080`。客户端填写 `http://Mac的局域网IP:8080`，不能填写 `127.0.0.1` 或 `0.0.0.0`。设备需连接同一局域网，Mac 保持开机且服务器运行；如 macOS 询问是否允许入站连接，请允许。IP 变化后需更新客户端地址。
+
 ### 环境变量
 
 | 变量 | 必填 | 说明 |
 | --- | --- | --- |
 | `PASSWORD` | 是 | 访问密码；未设置时站点会提示管理员配置 |
+| `SOURCE_MODE` | 否 | `client`（默认）保留浏览器自配源；`server` 由管理员统一管理点播源，搜索和详情只采用服务器配置 |
+| `ADMIN_PASSWORD` | server 模式管理时必填 | 独立管理员密码，用于修改共享点播源；与观看密码分开设置，不下发到客户端 |
+| `SERVER_DATA_DIR` | 否 | 服务器点播源持久化目录，本机默认 `.data`，Docker Compose 默认 `/app/data` 并挂载 `libretv-data` 数据卷 |
 | `PROXY_SECRET` | 否 | 会话/代理签名密钥；不设置时从 PASSWORD 派生（多实例部署建议显式设置） |
 | `DEFAULT_SOURCES` | 否 | 预置采集站（JSON 数组），用户端自动出现且默认勾选，详见[配置文档](https://libretv.is-an.org/wiki/Configuration.html) |
 | `REQUEST_TIMEOUT` | 否 | 代理上游请求超时（毫秒），默认 8000 |
@@ -102,6 +107,59 @@ PASSWORD=your-password npm start   # 监听 8080
 | `DEFAULT_SUBSCRIPTIONS` | 否 | 预置数据源订阅（LibreTV-SourceList JSON 链接，也接受 TVBOX 配置地址），JSON 数组：`["https://.../sources.json", {"url":"https://.../list.json","name":"名称"}]`。首次访问自动导入点播源与直播源，之后每 24h 静默刷新；用户删除后不再自动加回 |
 | `DEFAULT_RECOMMEND_SOURCE` | 否 | 首页推荐数据源的默认值（`douban` / `bangumi` / `hot-list`，出厂默认 `hot-list`）；仅对未在设置中主动选择过的用户生效，用户的选择始终优先 |
 | `LIVE_ALLOW_PRIVATE` | 否 | 设为 `1` 时允许直播流代理访问内网/保留地址（自建 IPTV 场景），默认关闭以维持 SSRF 防护 |
+
+## 服务器 + 原生客户端
+
+本仓库继续提供 Next.js 服务端和网页客户端。iOS / tvOS 客户端建议建独立 Git 仓库，使用 Swift + SwiftUI + AVKit，通过下列 HTTP 接口连接此服务；无须复制或运行 Node.js 代码。
+
+### 统一管理点播源
+
+在本机 `.env.local`（Docker Compose 使用 `.env`）配置：
+
+```dotenv
+PASSWORD=your-viewer-password
+SOURCE_MODE=server
+ADMIN_PASSWORD=your-separate-admin-password
+DEFAULT_SOURCES=[{"name":"示例源","url":"https://example.com/api.php/provide/vod"}]
+```
+
+重启后，普通网页 `/` 作为观看客户端，服务器模式下设置中不再显示源管理。管理员进入独立后台 `/admin`，使用 `ADMIN_PASSWORD` 登录后添加、编辑和保存点播源。后台登录无需先登录观看网页；两者使用独立 Cookie，观看密码不能取得管理权限，退出后台不影响观看登录。后台会话有效期为 8 小时。
+
+保存是整份配置替换，点击保存前可核对列表；有未保存改动时可撤销。其他网页每分钟同步一次，原生客户端在启动、返回前台或搜索前重新获取配置。
+
+首次读取使用 `DEFAULT_SOURCES`；保存后以数据目录的 `sources.json` 为准，环境预置不再覆盖磁盘配置。管理员删除全部源后不会自动恢复预置源。源编号在修改地址时保留，支持客户端稳定引用；新增源生成新编号。请备份数据目录；Docker 使用持久卷避免重建容器丢失配置。当前文件存储适用于单实例部署，不能在多个实例中共享写入同一文件。
+
+服务器模式下，客户端提交的源地址、名称、成人标记和详情页根地址均不能覆盖服务器配置。网页配置更新后直接生效，无须重新安装原生客户端。当前统一管理范围为**点播源**；直播源、订阅自动更新、每人独立账号与跨设备观看记录尚未迁移到服务器，观看记录仍由客户端保存。现阶段以共享观看密码登录，管理员使用独立密码。
+
+### 客户端接口（v1）
+
+以下接口使用现有 `ltv_session` Cookie 鉴权。原生客户端使用持久 Cookie 存储，登录后后续请求携带 Cookie；播放器访问本站代理 manifest、分片和密钥时也必须携带同一 Cookie，不要把本站 Cookie 附加到第三方直连地址。
+
+| 接口 | 请求 | 说明 |
+| --- | --- | --- |
+| `/api/status` | GET | 无须登录即可获取版本、登录状态、`sourceMode`；匿名响应不含源配置 |
+| `/api/auth` | POST `{"password":"观看密码"}` | 验证成功后设置 HttpOnly 会话 Cookie |
+| `/api/auth` | DELETE | 清除客户端会话 Cookie |
+| `/api/server/config` | GET，已登录 | 返回 `apiVersion: 1`、`revision`、`sources: [{key,name,isAdult}]`，不含源地址 |
+| `/api/search` | POST `{"wd":"片名","filterAdult":true}` | server 模式自动搜索服务器全部点播源；可选 `sourceKeys: ["源编号"]` 限定来源 |
+| `/api/search?stream=1` | 同上 | NDJSON：逐源 `source` 事件及最终 `done` 事件；也可直接使用普通 JSON 模式 |
+| `/api/detail?id=影片ID&sourceKey=源编号` | GET，已登录 | 返回 `episodes`、与地址同序的 `episodeTitles`（无名称时为空字符串）和 `videoInfo`，使用服务器当前源配置 |
+| `/api/proxy?url=编码后的播放地址` | GET，已登录 | 代理播放列表、分片及密钥；HLS 播放列表内地址自动重写 |
+| `/api/admin/auth` | GET / POST `{"password":"管理员密码"}` / DELETE | 独立后台会话状态、登录和退出；签发 `ltv_admin_session` HttpOnly Cookie，不接受观看密码 |
+| `/api/admin/sources` | GET / PUT，后台会话 Cookie | 管理员读取/保存共享源，普通客户端不调用；PUT body 为 `{sources,revision}`，旧版本返回 409 |
+| `/api/admin/episodes` | GET / POST，后台会话 Cookie | 后台搜索节目、读取/修改分集资料、查询和导入公开节目资料；不接受观看会话 |
+
+### 分集标题补充
+
+`server` 模式下，后台的“分集资料”页面可搜索当前资源源里的节目，手动编辑每集标题，也可从 Bangumi 或 TVmaze 查询并导入。显示优先级为手动修正、源里的真实标题、补充资料；纯“第01集”标签视为没有标题。客户端仍读取 `episodeTitles`，新增 `episodeTitleOrigins` 和 `episodeAttributions` 用于来源说明。
+
+缺失标题时默认尝试自动匹配。自动匹配须片名和年份明确、候选唯一、源编号为连续正篇集序、资料集数一致；不猜译名，也不把特别篇、上下集、合并版按数组位置硬套。TVmaze 后续季目前需在后台指定季数导入，国剧和综艺的中文资料覆盖有限，查不到时可以手动填写。设置 `EPISODE_METADATA_AUTO=false` 可关闭全局自动查询，每部节目也可单独停用。外部查询有超时和失败缓存，查询失败不影响播放。
+
+分集资料保存在 `SERVER_DATA_DIR/episode-metadata.json`（本机默认 `.data/episode-metadata.json`），与点播源共用持久化目录。保存采用版本检查和原子写入。资料绑定当前源、节目以及分集地址顺序；播放列表变化时旧资料暂停使用，后台核对后重新保存。后台修改后，重新打开影片详情即可获取，原始详情缓存不会覆盖新标题。
+
+公开节目资料来自 [Bangumi API](https://bangumi.github.io/api/) 和 [TVmaze API](https://www.tvmaze.com/api)。使用 TVmaze 补充名称的页面保留 TVmaze 来源链接及 CC BY-SA 标注；客户端展示补充名称时应同时展示 `episodeAttributions`。自动查询仅获取公开节目和分集资料，不分析或下载视频内容。
+
+原生客户端只需让用户设置服务器地址和观看密码。401 表示登录失效；503 表示未配置观看密码；源编号失效时重新获取配置后重试。访问同一局域网服务器时，使用服务器的局域网地址，不能使用手机上的 `localhost`。开发时可用 `npm run dev -- --hostname 0.0.0.0`；公开部署使用生产构建、HTTPS 和可靠的反向代理。iOS 本地开发还需要按实际连接方式配置本地网络权限及 HTTP 开发例外，正式部署使用 HTTPS。
 
 ## 使用说明
 
@@ -221,6 +279,9 @@ CI 校验通过后自动构建并推送 `ghcr.io/librespark/libretv:<版本>`（
 - 密码只保存在服务端环境变量中，前端不持有任何可重放凭证。
 - 登录接口有 IP 速率限制（10 次 / 10 分钟）。
 - 代理内置 SSRF 防护：拒绝内网/保留地址（含 DNS 解析后校验），仅放行 http(s)。
+- 实际 socket 连接使用安全 DNS lookup，防止预检与连接间 DNS 重绑定；每次重定向重新校验。
+- 鉴权代理内容使用 `private, no-store`，仅匿名图片白名单的成功图片允许公共缓存。
+- 未登录的状态接口不下发源和订阅地址；管理员源配置接口另需 `ADMIN_PASSWORD`。
 - 未登录会话仅允许代理图片类目标（豆瓣封面防盗链需要）。
 
 ## 衍生作品

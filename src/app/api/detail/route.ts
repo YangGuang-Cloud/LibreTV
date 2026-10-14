@@ -1,21 +1,19 @@
 import { NextResponse } from 'next/server';
 import { guardRequest } from '@/lib/api-guard';
-import { cmsRequestHeaders, parseDetail, parseDetailPageHtml } from '@/lib/cms-parser';
-import { fetchUpstream, getCache, setCache } from '@/lib/fetch-utils';
-import { checkUpstreamAllowed } from '@/lib/ssrf';
-import type { SourceConfig, VideoDetail } from '@/lib/types';
+import type { SourceConfig } from '@/lib/types';
+import { parseSourceConfig } from '@/lib/source-config';
+import { resolveServerSources, serverSourceMode } from '@/lib/server-sources';
+
+import { loadVideoDetail, DetailLoadError } from '@/lib/video-detail';
+import { enrichEpisodeTitles } from '@/lib/episode-metadata';
 
 export const runtime = 'nodejs';
 
-/** 详情结果短缓存：换源测速/多人观看同一影片时避免重复打上游 */
-const DETAIL_CACHE_TTL = 60 * 1000;
 
 function parseSource(raw: string | null): SourceConfig | null {
   if (!raw) return null;
   try {
-    const obj = JSON.parse(raw) as SourceConfig;
-    if (!obj || !/^https?:\/\//.test(obj.url || '')) return null;
-    return obj;
+    return parseSourceConfig(JSON.parse(raw));
   } catch {
     return null;
   }
@@ -31,8 +29,14 @@ export async function GET(req: Request) {
 
   const url = new URL(req.url);
   const id = (url.searchParams.get('id') || '').trim();
-  const source = parseSource(url.searchParams.get('source'));
-  const baseUrl = (url.searchParams.get('baseUrl') || '').trim(); // 可选：详情页根地址
+  let source = parseSource(url.searchParams.get('source'));
+  if (serverSourceMode()) {
+    try {
+      const key = url.searchParams.get('sourceKey') || source?.key;
+      source = key ? (await resolveServerSources([key]))[0] : null;
+    } catch { source = null; }
+  }
+  const baseUrl = serverSourceMode() ? '' : (url.searchParams.get('baseUrl') || '').trim();
 
   if (!id || !/^[\w-]+$/.test(id)) {
     return NextResponse.json({ error: '无效的视频ID' }, { status: 400 });
@@ -42,65 +46,17 @@ export async function GET(req: Request) {
   }
 
   try {
-    // 命中 60s 缓存直接返回（仅缓存成功拿到剧集的结果）
-    const detailRootForCache = (source.detail || baseUrl || '').replace(/\/+$/, '');
-    const cacheKey = `detail:${source.url}|${detailRootForCache}|${id}`;
-    const cached = getCache<VideoDetail>(cacheKey);
-    if (cached) {
-      return NextResponse.json(cached);
+    const raw = await loadVideoDetail(source, id, req.signal, baseUrl);
+    let resolved = raw;
+    if (serverSourceMode()) {
+      try { resolved = await enrichEpisodeTitles(source, id, raw); }
+      catch { /* 资料损坏或不可用时，影片依然可观看。 */ }
     }
-
-    // 用户可控地址发起服务端请求，先过 SSRF 校验（协议白名单 + 内网/保留地址）
-    const listVerdict = await checkUpstreamAllowed(source.url);
-    if (!listVerdict.ok) {
-      return NextResponse.json({ error: listVerdict.reason }, { status: 400 });
-    }
-
-    let resolved: VideoDetail | null = null;
-
-    // 1) 标准列表接口
-    const api = `${source.url.replace(/\/+$/, '')}?ac=videolist&ids=${encodeURIComponent(id)}`;
-    const res = await fetchUpstream(api, { timeoutMs: 10000, headers: cmsRequestHeaders() });
-    if (res.ok) {
-      const data = await res.json();
-      try {
-        const detail = parseDetail(data, source);
-        if (detail.episodes.length > 0) {
-          resolved = detail;
-        }
-        // 有详情但无播放地址 → 继续尝试详情页
-      } catch {
-        // 列表接口无内容 → 继续尝试详情页
-      }
-    }
-
-    // 2) 详情页 HTML 提取（detail 地址优先，否则用 API 地址推导）
-    const detailRoot = (source.detail || baseUrl || '').replace(/\/+$/, '');
-    if (!resolved && detailRoot && /^https?:\/\//.test(detailRoot)) {
-      const detailVerdict = await checkUpstreamAllowed(detailRoot);
-      if (!detailVerdict.ok) {
-        return NextResponse.json({ error: detailVerdict.reason }, { status: 400 });
-      }
-      const detailUrl = `${detailRoot}/index.php/vod/detail/id/${id}.html`;
-      const detailRes = await fetchUpstream(detailUrl, {
-        timeoutMs: 10000,
-        headers: { 'User-Agent': cmsRequestHeaders()['User-Agent'] },
-      });
-      if (detailRes.ok) {
-        const html = await detailRes.text();
-        resolved = parseDetailPageHtml(html, source);
-      }
-    }
-
-    if (!resolved || resolved.episodes.length === 0) {
-      return NextResponse.json({ error: '未找到播放资源' }, { status: 404 });
-    }
-    setCache(cacheKey, resolved, DETAIL_CACHE_TTL);
     return NextResponse.json(resolved);
   } catch (err) {
     return NextResponse.json(
       { error: err instanceof Error ? err.message : '获取详情失败' },
-      { status: 502 }
+      { status: err instanceof DetailLoadError ? err.status : 502 }
     );
   }
 }

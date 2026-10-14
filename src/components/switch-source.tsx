@@ -53,12 +53,13 @@ export function SwitchSourceModal({
   const sources = useMemo(() => {
     // selectedKeys 可能含历史残留的重复 key：按 key 去重，避免同源重复搜索/测速与 React key 撞车
     const seen = new Set<string>();
-    return store.selectedKeys
-      .map((key) => resolveSource(store, key))
+    const candidates = store.serverSourceMode ? store.envSources
+      : store.selectedKeys.map((key) => resolveSource(store, key));
+    return candidates
       .filter((s): s is SourceConfig => {
         if (!s || seen.has(s.key)) return false;
         seen.add(s.key);
-        return true;
+        return !(store.yellowFilter && s.isAdult);
       });
   }, [store]);
 

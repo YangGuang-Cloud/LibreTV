@@ -27,7 +27,7 @@ const SUB_URL = 'https://paste.rs/JsI9D';
 
 const status = (over: Partial<AuthStatusResponse> = {}): AuthStatusResponse => ({
   passwordRequired: true,
-  verified: false,
+  verified: true,
   version: 'test',
   defaultSources: [],
   defaultLiveSources: [],
@@ -70,6 +70,21 @@ afterEach(() => {
 });
 
 describe('applyEnvPresets', () => {
+  it('匿名状态不应用源或同步订阅，登录后会重新应用', async () => {
+    const presets = { defaultSources: [{ key: 'env_0', name: '源', url: 'https://example.com/api' }], defaultSubscriptions: [{ url: SUB_URL }] };
+    await applyEnvPresets(status({ ...presets, verified: false }));
+    expect(useAppStore.getState().envSources).toEqual([]);
+    expect(fetchSourceList).not.toHaveBeenCalled();
+    await applyEnvPresets(status({ defaultSources: presets.defaultSources, verified: true }));
+    expect(useAppStore.getState().envSources).toHaveLength(1);
+  });
+  it('管理员替换源地址后清除旧地址的失败健康度', async () => {
+    const old = { key: 'env_0', name: '源', url: 'https://old.example/api' };
+    await applyEnvPresets(status({ sourceMode: 'server', defaultSources: [old] }));
+    useAppStore.setState({ sourceHealth: { env_0: { ok: false, failStreak: 2, permanent: true, timestamp: Date.now() } } });
+    await applyEnvPresets(status({ sourceMode: 'server', defaultSources: [{ ...old, url: 'https://new.example/api' }] }));
+    expect(useAppStore.getState().sourceHealth.env_0).toBeUndefined();
+  });
   it('写入预置点播源与直播源，并自动勾选/启用', async () => {
     await applyEnvPresets(
       status({

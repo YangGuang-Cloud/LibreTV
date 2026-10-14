@@ -21,6 +21,7 @@ ENV HOSTNAME=0.0.0.0
 
 # 非 root 用户
 RUN addgroup -S nodejs && adduser -S nextjs -G nodejs
+RUN mkdir -p /app/data && chown nextjs:nodejs /app/data
 
 COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/.next/static ./.next/static

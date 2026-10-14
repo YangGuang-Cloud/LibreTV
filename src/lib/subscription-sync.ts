@@ -107,7 +107,14 @@ export async function syncEnvSubscriptions(subs: { url: string; name?: string }[
  * 对已同步（24h 内）的订阅会跳过，对已成功过的订阅也不会重复导入。
  */
 export async function applyEnvPresets(status: AuthStatusResponse): Promise<void> {
+  useAppStore.setState({ serverSourceMode: status.sourceMode === 'server' });
+  if (!status.verified) return;
   if (Array.isArray(status.defaultSources)) {
+    const previous = new Map(useAppStore.getState().envSources.map((source) => [source.key, source]));
+    for (const source of status.defaultSources) {
+      const old = previous.get(source.key);
+      if (old && (old.url !== source.url || old.detail !== source.detail)) useAppStore.getState().clearSourceHealth(source.key);
+    }
     useAppStore.getState().setEnvSources(status.defaultSources);
   }
   if (Array.isArray(status.defaultLiveSources)) {

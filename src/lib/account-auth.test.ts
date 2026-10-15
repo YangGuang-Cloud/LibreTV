@@ -127,14 +127,14 @@ describe.sequential('真实 SQLite 账号闭环', () => {
   it('支持六位测试密码，拒绝更短密码，账号名忽略大小写', async () => {
     const adminCookie = `${ADMIN_SESSION_COOKIE}=${signAdminSession().token}`;
     expect((await createUser(request('/api/admin/users', 'POST', { username: 'too_short', password: '12345' }, adminCookie))).status).toBe(400);
-    expect((await createUser(request('/api/admin/users', 'POST', { username: 'Test1', name: 'Test1', password: '123456' }, adminCookie))).status).toBe(200);
-    const loginRequest = request('/api/auth', 'POST', { username: 'Test1', password: '123456' });
+    expect((await createUser(request('/api/admin/users', 'POST', { username: 'ShortPassFriend', name: '短密码测试', password: 'six123' }, adminCookie))).status).toBe(200);
+    const loginRequest = request('/api/auth', 'POST', { username: 'ShortPassFriend', password: 'six123' });
     loginRequest.headers.set('x-forwarded-for', '192.0.2.60');
     const response = await login(loginRequest);
     expect(response.status).toBe(200);
     const cookie = cookies(response);
     const current = await (await status(request('/api/status', 'GET', undefined, cookie))).json();
-    expect(current.user).toMatchObject({ username: 'test1', name: 'Test1' });
+    expect(current.user).toMatchObject({ username: 'shortpassfriend', name: '短密码测试' });
     expect((await logout(request('/api/auth', 'DELETE', undefined, cookie))).status).toBe(200);
   });
   it('连续尝试登录会限流', async () => {

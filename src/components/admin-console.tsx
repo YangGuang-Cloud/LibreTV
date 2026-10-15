@@ -60,7 +60,7 @@ export function AdminConsole() {
     <div className="min-h-screen">
       <header className="border-b border-line bg-surface">
         <div className="max-w-5xl mx-auto px-5 py-5 flex flex-wrap items-center justify-between gap-3">
-          <div><p className="text-xs text-accent font-medium tracking-widest">LibreTV</p><h1 className="text-xl font-semibold">管理后台</h1></div>
+          <div><p className="text-xs text-accent font-medium tracking-widest">Luna12TV</p><h1 className="text-xl font-semibold">管理后台</h1></div>
           <div className="flex items-center gap-3 text-sm">
             <Link href="/" className="btn-ghost">打开观看网页</Link>
             {status?.verified && <button className="btn-ghost" disabled={busy} onClick={() => void logout()}>退出后台</button>}

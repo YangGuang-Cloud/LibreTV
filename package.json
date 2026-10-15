@@ -1,8 +1,8 @@
 {
-  "name": "libretv",
+  "name": "luna12tv",
   "version": "2.16.12",
   "private": true,
-  "description": "免费在线视频搜索与观看平台（Next.js 重构版）",
+  "description": "Luna12TV · 月十二影视，简洁、无内嵌广告的在线视频搜索与观看平台",
   "license": "AGPL-3.0-or-later",
   "scripts": {
     "dev": "next dev -p 8080",

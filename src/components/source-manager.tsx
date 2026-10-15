@@ -859,7 +859,7 @@ function SourceSubscriptions() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `LibreTV-SourceList_${Date.now()}.json`;
+    a.download = `Luna12TV-SourceList_${Date.now()}.json`;
     a.click();
     URL.revokeObjectURL(url);
     toast(`已导出 ${sources.length} 个点播源、${liveSources.length} 个直播源，托管后即可被他人订阅`, 'success');
@@ -1086,7 +1086,7 @@ function ConfigIoPanel() {
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `LibreTV-Settings_${Date.now()}.json`;
+      a.download = `Luna12TV-Settings_${Date.now()}.json`;
       a.click();
       URL.revokeObjectURL(url);
       toast('配置已导出', 'success');
@@ -1160,7 +1160,7 @@ function summarizeConfig(text: string): string {
   } catch {
     throw new Error('文件不是合法的 JSON');
   }
-  if (cfg.name !== 'LibreTV-Settings') throw new Error('不是 LibreTV 的配置文件');
+  if (cfg.name !== 'LibreTV-Settings') throw new Error('不是有效的 Luna12TV 配置文件（兼容 LibreTV 格式）');
 
   const parts: string[] = [];
   const settingsRaw = cfg.data?.[PERSIST_KEY];

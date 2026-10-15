@@ -92,13 +92,15 @@ export function SiteFooter() {
   return (
     <footer className="border-t border-line py-4">
       <p className="text-center text-xs text-faint">
+        <span>Luna12TV · 月十二影视{version ? ` v${version}` : ''}</span>
+        {' · 基于 '}
         <a
           href="https://github.com/LibreSpark/LibreTV"
           target="_blank"
           rel="noopener noreferrer"
           className="group relative inline-block cursor-help hover:text-accent"
         >
-          LibreTV{version ? ` v${version}` : ''}
+          LibreTV
           {version && <UpdateTip update={upstreamUpdate} />}
         </a>
         {' · '}

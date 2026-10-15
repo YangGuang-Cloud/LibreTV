@@ -62,7 +62,7 @@ export function AdminUserManager({ onSessionExpired }: { onSessionExpired: () =>
       <div className="grid gap-4 sm:grid-cols-3">
         <label className="text-sm">账号<input required minLength={3} maxLength={32} pattern="[a-zA-Z0-9_]{3,32}" autoComplete="off" className="input w-full mt-2" placeholder="字母、数字或下划线" value={username} onChange={(event) => setUsername(event.target.value)} /></label>
         <label className="text-sm">显示名称<input maxLength={80} className="input w-full mt-2" placeholder="选填，默认使用账号" value={name} onChange={(event) => setName(event.target.value)} /></label>
-        <label className="text-sm">初始密码<input required type="password" minLength={10} maxLength={128} autoComplete="new-password" className="input w-full mt-2" placeholder="至少 10 位" value={password} onChange={(event) => setPassword(event.target.value)} /></label>
+        <label className="text-sm">初始密码<input required type="password" minLength={6} maxLength={128} autoComplete="new-password" className="input w-full mt-2" placeholder="至少 6 位" value={password} onChange={(event) => setPassword(event.target.value)} /></label>
       </div>
       <button className="btn-primary" disabled={busy}>{busy ? '正在处理…' : '创建账号'}</button>
     </form>
@@ -78,7 +78,7 @@ export function AdminUserManager({ onSessionExpired }: { onSessionExpired: () =>
     <ConfirmDialog open={!!disableUser} title={`停用账号 ${disableUser?.username || ''}？`} message="该账号将立即退出所有设备，无法再次登录。已有数据会保留，之后可重新启用。" confirmLabel="停用账号" danger onCancel={() => setDisableUser(null)} onConfirm={() => { const user = disableUser; setDisableUser(null); if (user) void mutate('PATCH', { userId: user.id, action: 'disable' }, '账号已停用'); }} />
     {resetUser && <form className="card p-5 space-y-4" onSubmit={(event) => { event.preventDefault(); void mutate('PATCH', { userId: resetUser.id, action: 'reset-password', password: resetPassword }, '密码已重置，所有设备已退出登录').then((ok) => { if (ok) { setResetUser(null); setResetPassword(''); } }); }}>
       <h3 className="font-medium">重置 {resetUser.username} 的密码</h3>
-      <label className="block text-sm">新密码<input autoFocus required type="password" minLength={10} maxLength={128} autoComplete="new-password" className="input w-full mt-2" value={resetPassword} onChange={(event) => setResetPassword(event.target.value)} /></label>
+      <label className="block text-sm">新密码<input autoFocus required type="password" minLength={6} maxLength={128} autoComplete="new-password" className="input w-full mt-2" value={resetPassword} onChange={(event) => setResetPassword(event.target.value)} /></label>
       <div className="flex gap-3"><button className="btn-primary" disabled={busy}>确认重置</button><button type="button" className="btn-ghost" disabled={busy} onClick={() => { setResetUser(null); setResetPassword(''); }}>取消</button></div>
     </form>}
   </section>;

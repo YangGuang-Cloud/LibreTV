@@ -11,7 +11,7 @@ export function validUsername(value: unknown): string {
 }
 
 export function validPassword(value: unknown): string {
-  if (typeof value !== 'string' || value.length < 10 || value.length > 128) throw new AccountInputError('密码长度需为 10–128 位');
+  if (typeof value !== 'string' || value.length < 6 || value.length > 128) throw new AccountInputError('密码长度需为 6–128 位');
   return value;
 }
 

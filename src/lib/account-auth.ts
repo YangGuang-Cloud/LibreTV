@@ -24,7 +24,7 @@ function createAccountAuth() {
     telemetry: { enabled: false },
     database,
     advanced: { disableCSRFCheck: false, disableOriginCheck: false },
-    emailAndPassword: { enabled: true, disableSignUp: true, minPasswordLength: 10, maxPasswordLength: 128 },
+    emailAndPassword: { enabled: true, disableSignUp: true, minPasswordLength: 6, maxPasswordLength: 128 },
     session: { expiresIn: 30 * 24 * 60 * 60, updateAge: 24 * 60 * 60, cookieCache: { enabled: false } },
     rateLimit: { enabled: true, window: 60, max: 60, customRules: { '/sign-in/username': { window: 600, max: 10 } } },
     plugins: [username({ minUsernameLength: 3, maxUsernameLength: 32 }), admin()],

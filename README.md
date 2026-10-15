@@ -27,53 +27,14 @@ LibreTV Next.js 迁移版：免费在线视频聚合搜索与观看平台。基�
 
 ## 部署
 
-### Docker（推荐）
+### 当前服务器部署
 
-```bash
-# 在 .env 中设置 PASSWORD
-echo "PASSWORD=your-password" > .env
+当前使用阿里云 Ubuntu 24.04 + Node.js 22 + systemd 直接运行应用。
+推送到 `main` 后，GitHub Actions 自动检查、构建独立运行包并部署到服务器，详见[自动部署说明](scripts/deploy/README.md)。
 
-# 方式一：拉取发布镜像（零构建）
-docker compose pull && docker compose up -d
-
-# 方式二：源码构建
-docker compose up -d --build
-```
-
-### Docker Compose
-
-```yaml
-services:
-  libretv:
-    image: ghcr.io/librespark/libretv:latest
-    container_name: libretv
-    restart: unless-stopped
-    ports:
-      - "8080:8080"
-    environment:
-      - PASSWORD=change-me   # 必填：访问密码，务必修改
-      # - PROXY_SECRET=your-secret          # 会话/代理签名密钥，多实例部署建议设置
-      # - DEFAULT_SOURCES=[{"name":"示例源","url":"https://example.com/api.php/provide/vod"}]
-      # - DEFAULT_LIVE_SOURCES=[{"name":"示例直播源","url":"https://example.com/list.m3u"}]
-      # - DEFAULT_SUBSCRIPTIONS=["https://example.com/sources.json"]  # 预置订阅，自动导入点播源+直播源
-      # - DEFAULT_RECOMMEND_SOURCE=douban  # 首页推荐数据源默认值（douban/bangumi/hot-list），仅对未主动选择过的用户生效
-      # - LIVE_ALLOW_PRIVATE=1              # 自建内网 IPTV 源时开启
-```
-
-> 其余可选变量见下方[环境变量](#环境变量)表；仓库内的 `docker-compose.yml` 含完整注释版本（含 `build: .` 源码构建分支）。
-
-```bash
-docker compose pull && docker compose up -d
-```
+服务器运行配置位于 `/etc/libretv/runtime.env`，持久化数据位于 `/var/lib/libretv`，与应用发布目录分开保存。
 
 > 对外部署请使用 HTTPS，保护访问密码和管理员密码。会话 cookie 的 `Secure` 默认按 `x-forwarded-proto` 自动推导，也可用 `COOKIE_SECURE` 显式覆盖。反向代理应正确设置协议头，并覆盖客户端传入的 IP 转发头，避免登录限流被伪造 IP 绕过。
-
-镜像发布在 GHCR 与 Docker Hub：`ghcr.io/librespark/libretv` 与 `docker.io/bestzwei/libretv`
-（`latest` / `主.次` / 完整版本号三个 tag，`linux/amd64` 与 `linux/arm64` 双架构，
-两个 registry 的镜像 digest 一致）。需要固定版本时在 `.env` 中设置
-`LIBRETV_IMAGE=ghcr.io/librespark/libretv:2.0.1`。
-
-> 版本号以 `package.json` 为单一来源，部署后可用 `/api/status` 返回的 `version` 字段核对。详见[部署文档](https://libretv.is-an.org/wiki/Deployment.html)。
 
 ### 手动运行
 
@@ -92,7 +53,7 @@ PASSWORD=your-password npm start   # 监听 8080
 | `PASSWORD` | 是 | 访问密码；未设置时站点会提示管理员配置 |
 | `SOURCE_MODE` | 否 | `client`（默认）保留浏览器自配源；`server` 由管理员统一管理点播源，搜索和详情只采用服务器配置 |
 | `ADMIN_PASSWORD` | server 模式管理时必填 | 独立管理员密码，用于修改共享点播源；与观看密码分开设置，不下发到客户端 |
-| `SERVER_DATA_DIR` | 否 | 服务器点播源持久化目录，本机默认 `.data`，Docker Compose 默认 `/app/data` 并挂载 `libretv-data` 数据卷 |
+| `SERVER_DATA_DIR` | 否 | 服务器点播源持久化目录，默认 `.data`；当前服务器使用 `/var/lib/libretv`，更新应用时须保留 |
 | `PROXY_SECRET` | 否 | 会话/代理签名密钥；不设置时从 PASSWORD 派生（多实例部署建议显式设置） |
 | `DEFAULT_SOURCES` | 否 | 预置采集站（JSON 数组），用户端自动出现且默认勾选，详见[配置文档](https://libretv.is-an.org/wiki/Configuration.html) |
 | `REQUEST_TIMEOUT` | 否 | 代理上游请求超时（毫秒），默认 8000 |
@@ -114,7 +75,7 @@ PASSWORD=your-password npm start   # 监听 8080
 
 ### 统一管理点播源
 
-在本机 `.env.local`（Docker Compose 使用 `.env`）配置：
+本地运行在 `.env.local` 配置；当前服务器在 `/etc/libretv/runtime.env` 配置：
 
 ```dotenv
 PASSWORD=your-viewer-password
@@ -127,7 +88,7 @@ DEFAULT_SOURCES=[{"name":"示例源","url":"https://example.com/api.php/provide/
 
 保存是整份配置替换，点击保存前可核对列表；有未保存改动时可撤销。其他网页每分钟同步一次，原生客户端在启动、返回前台或搜索前重新获取配置。
 
-首次读取使用 `DEFAULT_SOURCES`；保存后以数据目录的 `sources.json` 为准，环境预置不再覆盖磁盘配置。管理员删除全部源后不会自动恢复预置源。源编号在修改地址时保留，支持客户端稳定引用；新增源生成新编号。请备份数据目录；Docker 使用持久卷避免重建容器丢失配置。当前文件存储适用于单实例部署，不能在多个实例中共享写入同一文件。
+首次读取使用 `DEFAULT_SOURCES`；保存后以数据目录的 `sources.json` 为准，环境预置不再覆盖磁盘配置。管理员删除全部源后不会自动恢复预置源。源编号在修改地址时保留，支持客户端稳定引用；新增源生成新编号。请定期备份数据目录，更新应用时保留该目录。当前文件存储适用于单实例部署，不能在多个实例中共享写入同一文件。
 
 服务器模式下，客户端提交的源地址、名称、成人标记和详情页根地址均不能覆盖服务器配置。网页配置更新后直接生效，无须重新安装原生客户端。当前统一管理范围为**点播源**；直播源、订阅自动更新、每人独立账号与跨设备观看记录尚未迁移到服务器，观看记录仍由客户端保存。现阶段以共享观看密码登录，管理员使用独立密码。
 
@@ -265,14 +226,9 @@ npm run typecheck
 
 ## 发布新版本
 
-版本号以 `package.json` 为单一来源，发布镜像由 GitHub Actions 自动完成：
+版本号以 `package.json` 为单一来源。需要升级版本号时，运行 `npm version patch`（或 `minor` / `major`），随代码一起提交并推送到 `main`。
 
-```bash
-npm version patch       # 或 minor / major；会更新 package.json 并打 git tag
-git push && git push --tags
-```
-
-CI 校验通过后自动构建并推送 `ghcr.io/librespark/libretv:<版本>`（详见[部署文档](https://libretv.is-an.org/wiki/Deployment.html)）。
+GitHub Actions 的 `Deploy Aliyun` 流程会在检查通过后自动构建并部署；也可以手动触发。发布不依赖版本标签。部署、备份范围与自动回滚机制见[自动部署说明](scripts/deploy/README.md)。
 
 ## 安全说明
 

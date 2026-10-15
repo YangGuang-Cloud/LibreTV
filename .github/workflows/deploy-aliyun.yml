@@ -25,7 +25,7 @@ jobs:
       - run: python3 -m unittest discover -s scripts/deploy -p 'test_*.py'
       - run: npm run build
         env:
-          DOCKER_BUILD: '1'
+          STANDALONE_BUILD: '1'
           APP_BUILD_ID: ${{ github.sha }}
           NEXT_TELEMETRY_DISABLED: '1'
       - name: Package standalone release

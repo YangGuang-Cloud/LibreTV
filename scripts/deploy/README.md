@@ -1,7 +1,7 @@
 # 阿里云自动部署
 
-适配当前 Ubuntu 24.04 + Node 22 + systemd 安装，不迁移到 Docker。
-推送到 `main` 后，GitHub Actions 运行检查、构建 Linux x64 standalone 包，上传并切换运行版本。
+当前服务器使用 Ubuntu 24.04 + Node 22 + systemd 直接运行应用。
+推送到 `main` 后，GitHub Actions 运行检查、通过 `STANDALONE_BUILD=1` 构建 Linux x64 standalone 包，上传并切换运行版本。
 也可以在 Actions → Deploy Aliyun → Run workflow 手动发布 `main`。
 
 ## 当前状态

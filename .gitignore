@@ -1,6 +1,7 @@
 node_modules/
 .next/
 .data/
+accounts.sqlite*
 out/
 .env
 .env*.local

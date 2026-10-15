@@ -23,8 +23,7 @@ import { allLiveSources, isSourceDisabled, keyBelongsToSubscription, resolveSour
 import type { SourceConfig } from '@/lib/types';
 import { useToast } from './toast';
 import { formatRelativeTime, hostnameOf, validateSourceUrl, cn } from '@/lib/utils';
-import { exportConfig, importConfig } from '@/lib/db';
-import { PERSIST_KEY } from '@/lib/persist-storage';
+import { exportConfig, importConfig, PERSIST_KEY } from '@/lib/db';
 import { copyToClipboard } from '@/lib/clipboard';
 import { useAuth } from './auth';
 import { api } from '@/lib/client-api';
@@ -1118,7 +1117,7 @@ function ConfigIoPanel() {
 
   return (
     <section>
-      <SectionTitle title="配置导入导出" hint="导出/导入包含数据源、订阅与偏好设置的整机配置" />
+      <SectionTitle title="配置导入导出" hint="导出/导入备份或导入账号中的个人配置和观看记录" />
       <div className="flex gap-2">
         <button className="btn-ghost flex-1 text-xs" onClick={doExport}>
           导出配置
@@ -1142,9 +1141,9 @@ function ConfigIoPanel() {
       <ConfirmDialog
         open={pending !== null}
         danger
-        title="导入配置并覆盖当前数据？"
-        message={pending ? `${pending.summary}。导入后将立即刷新页面，当前设备上的配置与观看历史会被覆盖。` : undefined}
-        confirmLabel="导入并覆盖"
+        title="将配置导入当前账号？"
+        message={pending ? `${pending.summary}。导入内容会保存到当前账号，更新同名记录和相应设置。` : undefined}
+        confirmLabel="导入到账号"
         onCancel={() => setPending(null)}
         onConfirm={confirmImport}
       />

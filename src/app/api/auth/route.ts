@@ -1,9 +1,11 @@
 import { NextResponse } from 'next/server';
 import { SESSION_COOKIE, checkRateLimit, sessionFromCookieHeader, signSession, checkPassword, clearRateLimit, isPasswordConfigured } from '@/lib/auth';
+import { accountConfigured, accountMode } from '@/lib/account-mode';
 
 export const runtime = 'nodejs';
 
 export async function POST(req: Request) {
+  if (accountMode()) return accountRequest(req, '/sign-in/username');
   if (!isPasswordConfigured()) {
     return NextResponse.json(
       { success: false, error: '服务器未设置 PASSWORD 环境变量，请联系管理员配置' },
@@ -53,13 +55,36 @@ export async function POST(req: Request) {
 
 /** GET：查询当前会话状态 */
 export async function GET(req: Request) {
+  if (accountMode()) {
+    if (!accountConfigured()) return NextResponse.json({ success: true, verified: false });
+    const { getAccountSession } = await import('@/lib/account-auth');
+    const session = await getAccountSession(req.headers);
+    return NextResponse.json({ success: true, verified: !!session }, { headers: { 'Cache-Control': 'private, no-store' } });
+  }
   const verified = sessionFromCookieHeader(req.headers.get('cookie'));
   return NextResponse.json({ success: true, verified });
 }
 
 /** DELETE：登出 */
-export async function DELETE() {
+export async function DELETE(req: Request) {
+  if (accountMode()) return accountRequest(req, '/sign-out');
   const res = NextResponse.json({ success: true });
   res.cookies.set(SESSION_COOKIE, '', { httpOnly: true, maxAge: 0, path: '/' });
   return res;
+}
+
+async function accountRequest(req: Request, path: string) {
+  if (!accountConfigured()) return NextResponse.json({ error: '账号系统尚未配置，请联系管理员' }, { status: 503 });
+  if (req.method === 'POST' && !req.headers.get('content-type')?.startsWith('application/json')) return NextResponse.json({ error: '请使用 JSON 请求' }, { status: 415 });
+  const raw = path === '/sign-out' ? '{}' : await req.text();
+  if (raw.length > 4096) return NextResponse.json({ error: '请求过大' }, { status: 413 });
+  const { accountAuthHandler } = await import('@/lib/account-auth');
+  const headers = new Headers(req.headers);
+  headers.set('content-type', 'application/json');
+  headers.delete('content-length');
+  const response = await accountAuthHandler(new Request(new URL(`/api/auth${path}`, process.env.BETTER_AUTH_URL), {
+    method: 'POST', headers, body: raw,
+  }));
+  response.headers.set('Cache-Control', 'private, no-store');
+  return response;
 }

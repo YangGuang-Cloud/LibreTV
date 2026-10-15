@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { ADMIN_SESSION_COOKIE, adminPasswordConfigured, adminSessionFromRequest, checkAdminPassword, secureCookie, signAdminSession } from '@/lib/admin-auth';
 import { checkRateLimit, clearRateLimit } from '@/lib/auth';
 import { serverSourceMode } from '@/lib/server-sources';
+import { accountConfigured, accountMode } from '@/lib/account-mode';
 
 export const runtime = 'nodejs';
 const headers = { 'Cache-Control': 'private, no-store' };
@@ -9,6 +10,7 @@ const headers = { 'Cache-Control': 'private, no-store' };
 export async function GET(req: Request) {
   return NextResponse.json({
     configured: adminPasswordConfigured(), verified: adminSessionFromRequest(req), sourceMode: serverSourceMode() ? 'server' : 'client',
+    accountMode: accountMode(), accountConfigured: accountConfigured(),
   }, { headers });
 }
 

@@ -2,8 +2,10 @@
 
 import { Header } from '@/components/header';
 import { SiteFooter } from '@/components/site-footer';
+import { useAuth } from '@/components/auth';
 
 export default function AboutPage() {
+  const { accountMode } = useAuth();
   return (
     <div className="min-h-screen flex flex-col">
       <Header />
@@ -12,7 +14,7 @@ export default function AboutPage() {
           <h1 className="text-xl font-bold text-content mb-3">关于 Luna12TV · 月十二影视</h1>
           <p className="text-sm text-muted leading-relaxed">
             Luna12TV（月十二影视）是一个简洁、无内嵌广告的在线视频搜索与观看平台。输入片名即可在多个点播源中聚合搜索，
-            无需注册、无内嵌广告、不存储任何视频文件。所有播放内容均来自第三方公开接口。
+            不开放注册、无内嵌广告、不存储任何视频文件。所有播放内容均来自第三方公开接口。
           </p>
         </section>
 
@@ -31,7 +33,7 @@ export default function AboutPage() {
         <section>
           <h2 className="text-base font-semibold text-content mb-2.5">隐私与数据</h2>
           <p className="text-sm text-muted leading-relaxed">
-            你的搜索历史、观看进度等数据仅保存在本设备浏览器中（IndexedDB），不会上传到服务器。
+            {accountMode ? '账号模式下，搜索历史、观看进度、收藏和个人设置直接保存到本站服务器，页面只保留内存状态。断网时无法保存，也不会在恢复连接后自动补传。视频缓存、下载文件及主题选择保留在设备上。' : '共享密码模式不保存个人记录，设置只在当前页面有效。需要保存个人数据时，请使用管理员分配的个人账号。'}
             聚合搜索请求由服务端代理转发，第三方数据源不会看到你的 IP 地址。
           </p>
         </section>

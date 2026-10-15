@@ -6,7 +6,7 @@ export const runtime = 'nodejs';
 
 /** 原生客户端只获取源编号和显示信息，无须配置资源站地址。 */
 export async function GET(req: Request) {
-  const guarded = guardRequest(req);
+  const guarded = await guardRequest(req);
   if (guarded) return guarded;
   if (!serverSourceMode()) return NextResponse.json({ error: '未开启服务器源管理模式' }, { status: 409 });
   try {

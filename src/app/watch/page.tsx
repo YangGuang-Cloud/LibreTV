@@ -1,5 +1,6 @@
 'use client';
 
+
 import { formatEpisodeLabel, meaningfulEpisodeTitle } from '@/lib/episode-title';
 
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -29,7 +30,7 @@ import {
   saveProgress,
   updateHistoryProgress,
   upsertHistory,
-  db,
+  getProgress,
 } from '@/lib/db';
 import { cn } from '@/lib/utils';
 
@@ -102,12 +103,12 @@ function WatchContent() {
     [router, searchParams, episodes, directUrl]
   );
 
-  // 进度恢复优先级：URL position 参数 > IndexedDB 记录
+  // 进度恢复优先级：URL position 参数 > 服务器记录
   const getRestorePosition = useCallback(async () => {
     const urlPos = parseInt(searchParams.get('position') || '0', 10) || 0;
     if (urlPos > 0) return urlPos;
     if (!vodId) return 0;
-    const entry = await db.progress.get(progressKeyOf(sourceKey, vodId, currentIndex));
+    const entry = await getProgress(progressKeyOf(sourceKey, vodId, currentIndex));
     return entry?.position ?? 0;
   }, [searchParams, sourceKey, vodId, currentIndex]);
 
@@ -142,6 +143,14 @@ function WatchContent() {
     },
     [sourceKey, vodId, currentIndex, currentUrl]
   );
+
+  const handlePause = useCallback((position: number, duration: number) => {
+    if (!vodId) return;
+    void Promise.all([
+      saveProgress(sourceKey, vodId, currentIndex, position, duration),
+      updateHistoryProgress(sourceKey, vodId, position, duration),
+    ]).catch(() => {});
+  }, [sourceKey, vodId, currentIndex]);
 
   // 自动连播的 800ms 延迟切集要在卸载时取消，避免离开页面后跳转
   const autoNextTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -248,7 +257,7 @@ function WatchContent() {
                   nextEpisodeKey={currentIndex + 1 < episodes.length ? `${sourceKey}:${vodId}:${currentIndex + 1}` : undefined}
                   getRestorePosition={getRestorePosition}
                   onTimeUpdate={handleProgress}
-                  onPause={handleProgress}
+                  onPause={handlePause}
                   onEnded={handleEnded}
                 />
               ) : (

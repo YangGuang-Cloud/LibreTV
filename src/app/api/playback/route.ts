@@ -6,7 +6,7 @@ import { isValidProxyUrl, isBlockedByDNS } from '@/lib/ssrf';
 export const runtime = 'nodejs';
 
 export async function POST(req: Request) {
-  const denied = guardRequest(req);
+  const denied = await guardRequest(req);
   if (denied) return denied;
   let body: unknown;
   try { body = await req.json(); } catch { return jsonError('无效请求', 400); }

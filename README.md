@@ -13,7 +13,7 @@ Luna12TV（月十二影视）：面向自己与亲友使用的简洁在线视频
  <a href="https://trendshift.io/repositories/26551?utm_source=repository-badge&amp;utm_medium=badge&amp;utm_campaign=badge-repository-26551" target="_blank" rel="noopener noreferrer"><img src="https://trendshift.io/api/badge/repositories/26551" alt="LibreSpark%2FLibreTV | Trendshift" width="250" height="55"/></a> <a href="https://trendshift.io/repositories/26551?utm_source=trendshift-badge&amp;utm_medium=badge&amp;utm_campaign=badge-trendshift-26551" target="_blank" rel="noopener noreferrer"><img src="https://trendshift.io/api/badge/trendshift/repositories/26551/weekly?language=JavaScript" alt="LibreSpark%2FLibreTV | Trendshift" width="250" height="55"/></a>
 </p>
 
-> 改名保留原有的浏览器存储、配置格式和部署服务名，已有观看记录、设置与旧版导出文件可继续使用。安装到桌面或主屏幕时显示为 Luna12TV。
+> 安装到桌面或主屏幕时显示为 Luna12TV。个人数据以服务器账号为准，浏览器只保留页面内存状态及视频缓存等设备数据。
 
 ## 核心特性
 
@@ -21,7 +21,7 @@ Luna12TV（月十二影视）：面向自己与亲友使用的简洁在线视频
 - **跨源同名聚合**：同名影片合并为一张卡片，展开即可比较和选择各来源
 - **HLS 播放**：ArtPlayer + hls.js，广告分片过滤、自动连播、倍速、快捷键、移动端长按 3 倍速
 - **直播 / IPTV**：M3U 订阅解析，`/live` 页面按分组浏览、搜索频道并站内播放（HLS + HTTP-FLV），支持 XMLTV 节目单（EPG）与频道收藏；直播流经专用长连接代理（`/api/live/stream`）转发
-- **进度同步**：播放进度与观看历史存于本机 IndexedDB，精确到秒的续播
+- **账号数据**：历史、进度、搜索、直播收藏及个人设置直接保存到服务器；页面仅使用内存缓存，刷新后重新读取
 - **换源测速**：跨源搜索同名资源并测速排序，一键切换保留集数位置
 - **源测试与订阅**：一键探活点播源与直播源（支持批量测活）；搜索时自动记录各源健康度，连续失败的源按阶梯时长自动停用（30 分钟 → 24 小时 → 长期），可一键恢复；订阅远程源列表（一份 LibreTV-SourceList JSON 可同时下发点播源与直播源，也可直接填 TVBOX 配置地址，自动导入其中可直接使用的接口），可导出分享
 - **首页推荐**：豆瓣（电影/剧集分类浏览）、Bangumi 新番放送表或影视榜单（豆瓣周榜 + 百度热播，经 60s API），设置中切换；均服务端直连 + 缓存，Bangumi/榜单免 key 免配置（`60S_API_BASE` 可指向自部署 60s 实例）
@@ -52,9 +52,12 @@ PASSWORD=your-password npm start   # 监听 8080
 
 | 变量 | 必填 | 说明 |
 | --- | --- | --- |
-| `PASSWORD` | 是 | 访问密码；未设置时站点会提示管理员配置 |
+| `PASSWORD` | 共享密码模式必填 | 访问密码；账号模式不使用此密码登录 |
+| `AUTH_MODE` | 否 | `password`（默认）共享密码；`account` 使用管理员分配的个人账号，关闭公开注册 |
+| `BETTER_AUTH_URL` | 账号模式必填 | 站点访问源地址，例如 `https://tv.example.com`，不含路径；本地可用 `http://localhost:8080` |
+| `BETTER_AUTH_SECRET` | 账号模式必填 | 至少 32 字符的随机密钥，可用 `openssl rand -hex 32` 生成；更改会使会话失效 |
 | `SOURCE_MODE` | 否 | `client`（默认）保留浏览器自配源；`server` 由管理员统一管理点播源，搜索和详情只采用服务器配置 |
-| `ADMIN_PASSWORD` | server 模式管理时必填 | 独立管理员密码，用于修改共享点播源；与观看密码分开设置，不下发到客户端 |
+| `ADMIN_PASSWORD` | 后台管理必填 | 独立管理员密码，用于修改共享点播源；与观看密码分开设置，不下发到客户端 |
 | `SERVER_DATA_DIR` | 否 | 服务器点播源持久化目录，默认 `.data`；当前服务器使用 `/var/lib/libretv`，更新应用时须保留 |
 | `PROXY_SECRET` | 否 | 会话/代理签名密钥；不设置时从 PASSWORD 派生（多实例部署建议显式设置） |
 | `DEFAULT_SOURCES` | 否 | 预置采集站（JSON 数组），用户端自动出现且默认勾选，详见[配置文档](https://libretv.is-an.org/wiki/Configuration.html) |
@@ -75,6 +78,43 @@ PASSWORD=your-password npm start   # 监听 8080
 
 本仓库继续提供 Next.js 服务端和网页客户端。iOS / tvOS 客户端建议建独立 Git 仓库，使用 Swift + SwiftUI + AVKit，通过下列 HTTP 接口连接此服务；无须复制或运行 Node.js 代码。
 
+### 个人账号与后台管理
+
+账号模式使用 Better Auth + SQLite，不开放注册。管理员访问 `/admin`，用 `ADMIN_PASSWORD` 登录，在「账号管理」中创建账号、启用/停用账号或重置密码。账号管理不依赖 `SOURCE_MODE=server`，与点播源管理可分别使用。
+
+启用前，在服务器的 `/etc/libretv/runtime.env`（本地为 `.env.local`）配置：
+
+```dotenv
+AUTH_MODE=account
+BETTER_AUTH_URL=https://tv.example.com
+BETTER_AUTH_SECRET=替换为至少32字符的随机密钥
+ADMIN_PASSWORD=替换为独立的管理员密码
+SERVER_DATA_DIR=/var/lib/libretv
+```
+
+将站点地址替换为实际地址，通过 `openssl rand -hex 32` 生成密钥，然后重启服务。保持已有管理员密码即可继续登录后台，不会自动生成默认用户。先在后台创建自己的账号，再将其他账号私下分配给亲友；账号为 3–32 位字母、数字或下划线（忽略大小写），密码为 10–128 位，无需邮箱。
+
+- 观看页面只接受个人账号，旧的共享密码会话在账号模式下不再有观看权限；旧客户端需要增加用户名登录支持后才能使用账号模式。
+- 用户在网页右上角账号菜单修改自己的密码，其他设备会退出。管理员停用或重置密码立即撤销该账号的全部会话；停用不删除账号及其已有数据。
+- 账号与会话保存到 `SERVER_DATA_DIR/accounts.sqlite`，初次使用自动创建表；发布目录可以更新，数据目录必须保留。依赖 Node.js 22 或更新版本，当前服务器保持 Node.js 22。
+- 观看历史、逐集进度、搜索历史、直播收藏/最近观看、个人源订阅和偏好设置直接读写服务器。页面只有内存缓存，不再将这些数据写入 IndexedDB 或 localStorage。
+- 播放中每 5 秒保存进度，暂停/切集时立即请求保存；个人设置改动立即请求保存。网页每 20 秒读取其他设备的变更，返回页面或恢复连接时重新读取，账号菜单也可「刷新账号数据」。
+- 保存需要连接服务器。断网或保存结果无法确认时显示错误；历史等记录在服务器确认后更新，设置保存失败则恢复服务器已确认的值。没有离线队列，不会在联网后自动补传失败的修改。
+- 每次写入前读取当前版本；遇到真正并发冲突时显示错误并采用服务器最新内容，用户可检查后重试。进度不取最大秒数，主动回看可以正常保存。刷新、切换账号后均重新从服务器加载。
+- 旧的个人数据表、离线队列和 localStorage 设置副本会清理；旧数据合并入口已移除。视频分片、下载文件、测速缓存、主题和设置面板位置属于设备数据，继续保留。配置文件仍可手动导出备份或导入到账号。
+- 共享密码模式不再保留个人记录；其临时设置只在当前页面有效。需要保存个人数据时应使用个人账号。
+- SQLite 使用 WAL 日志。运行时备份应使用 SQLite 的在线备份功能；若直接复制数据库文件，须先停止服务再备份整个数据目录，避免漏掉未合并的日志。
+
+### 账号数据同步接口
+
+`POST /api/user/sync` 使用 JSON，请求包含 `protocol: 1`、`accountId`、`cursor` 和 `mutations`。服务端从会话确定用户，`accountId` 仅用于核对客户端是否切错账号，不能用来访问其他用户。
+
+每个操作为 `{id, collection, key, baseVersion, value}`，`id` 是用于重试去重的随机 UUID，`baseVersion` 是该条目最后确认的服务器版本，新条目为 0；`value: null` 表示删除。每批最多 100 项、单项最多约 256KB，请求总长最多 2MB。集合包括 `history`、`progress`、`search`、`preference`、`favorite` 和 `recent`；偏好字段使用明确白名单，公共源配置、权限与缓存不能通过此接口修改。
+
+响应含 `results`（每个操作是否接受及其当前版本）、`records`（游标后的增量记录）、新的 `cursor` 和 `more`。每页最多 500 条；`more=true` 时继续拉取。网页将操作立即发给服务器，仅在收到完整且身份一致的确认后更新内存。操作 ID 与读取游标都只存在当前页面内存中，失败不会写入本地或自动重传。服务端按账号事务处理、分配版本并保留删除标记，不采用设备时间决定覆盖顺序。
+
+保留上限：观看历史 100 条、搜索历史 10 条、直播最近观看 20 条、逐集进度 5000 条、直播收藏 1000 条；超出上限的记录按集合规则淘汰并同步删除标记。
+
 ### 统一管理点播源
 
 本地运行在 `.env.local` 配置；当前服务器在 `/etc/libretv/runtime.env` 配置：
@@ -92,16 +132,17 @@ DEFAULT_SOURCES=[{"name":"示例源","url":"https://example.com/api.php/provide/
 
 首次读取使用 `DEFAULT_SOURCES`；保存后以数据目录的 `sources.json` 为准，环境预置不再覆盖磁盘配置。管理员删除全部源后不会自动恢复预置源。源编号在修改地址时保留，支持客户端稳定引用；新增源生成新编号。请定期备份数据目录，更新应用时保留该目录。当前文件存储适用于单实例部署，不能在多个实例中共享写入同一文件。
 
-服务器模式下，客户端提交的源地址、名称、成人标记和详情页根地址均不能覆盖服务器配置。网页配置更新后直接生效，无须重新安装原生客户端。当前统一管理范围为**点播源**；直播源、订阅自动更新、每人独立账号与跨设备观看记录尚未迁移到服务器，观看记录仍由客户端保存。现阶段以共享观看密码登录，管理员使用独立密码。
+服务器模式下，客户端提交的源地址、名称、成人标记和详情页根地址均不能覆盖服务器配置。网页配置更新后直接生效，无须重新安装原生客户端。当前统一管理范围为**点播源**；直播公共源与订阅自动更新尚未统一到后台管理。个人账号模式下，个人直播订阅、收藏和观看记录会随账号同步；共享密码模式仅保留当前页面的临时设置。管理员使用独立密码。
 
 ### 客户端接口（v1）
 
-以下接口使用现有 `ltv_session` Cookie 鉴权。原生客户端使用持久 Cookie 存储，登录后后续请求携带 Cookie；播放器访问本站代理 manifest、分片和密钥时也必须携带同一 Cookie，不要把本站 Cookie 附加到第三方直连地址。
+共享密码模式使用 `ltv_session` Cookie，账号模式使用 Better Auth 签发的会话 Cookie。原生客户端使用持久 Cookie 存储，接收服务端所有 `Set-Cookie` 响应，登录后后续请求携带 Cookie；播放器访问本站代理 manifest、分片和密钥时也必须携带同一 Cookie，不要把本站 Cookie 附加到第三方直连地址。
 
 | 接口 | 请求 | 说明 |
 | --- | --- | --- |
 | `/api/status` | GET | 无须登录即可获取版本、登录状态、`sourceMode`；匿名响应不含源配置 |
-| `/api/auth` | POST `{"password":"观看密码"}` | 验证成功后设置 HttpOnly 会话 Cookie |
+| `/api/auth` | POST `{"password":"观看密码"}`，账号模式为 `{"username":"账号","password":"密码"}` | 验证成功后设置 HttpOnly 会话 Cookie |
+| `/api/user/sync` | POST，个人账号登录后使用 | 账号数据版本同步，协议见下方说明 |
 | `/api/auth` | DELETE | 清除客户端会话 Cookie |
 | `/api/server/config` | GET，已登录 | 返回 `apiVersion: 1`、`revision`、`sources: [{key,name,isAdult}]`，不含源地址 |
 | `/api/search` | POST `{"wd":"片名","filterAdult":true}` | server 模式自动搜索服务器全部点播源；可选 `sourceKeys: ["源编号"]` 限定来源 |
@@ -129,7 +170,7 @@ DEFAULT_SOURCES=[{"name":"示例源","url":"https://example.com/api.php/provide/
 1. **添加点播源**：设置 → 源管理 → 点播源 → 添加 API，填入 Apple CMS 采集站地址（如 `https://example.com/api.php/provide/vod`），可选填详情页地址（部分源需要爬详情页提取播放地址）。
 2. **搜索**：勾选点播源后输入片名；搜索通过服务端聚合，个别源失败不影响整体结果。
 3. **播放**：详情弹窗选择剧集进入 `/watch`；支持快捷键（空格/←→/↑↓/F/Alt+←→）、移动端长按 3 倍速、自动连播、换源测速。观看/暂停时后续分片自动缓存到本地（设置可关），播放页可「下载本集」（TS/MP4）离线观看。
-4. **进度与历史**：自动保存在本设备 IndexedDB，仅定位信息入库，播放时自动同步最新剧集。
+4. **进度与历史**：个人账号直接保存到服务器数据库，刷新或在其他设备登录后读取；播放时按需获取最新剧集信息。
 5. **配置迁移**：设置 → 数据 → 配置导入导出（兼容旧版 LibreTV-Settings JSON 的历史记录迁移）。
 
 ## 直播 / IPTV

@@ -10,6 +10,10 @@ import { useAppStore, hydrateLiveProbeResults } from '@/lib/store';
 import { api, STATUS_QUERY_KEY } from '@/lib/client-api';
 import { applyEnvPresets } from '@/lib/subscription-sync';
 import { usePathname } from 'next/navigation';
+import { setClientDataScope, clearObsoletePersonalStorage } from '@/lib/db';
+import type { AuthStatusResponse } from '@/lib/types';
+import { startAccountData, stopAccountData } from '@/lib/account-data';
+import { AccountDataNotice } from './account-data-notice';
 
 export function Providers({ children }: { children: ReactNode }) {
   const pathname = usePathname();
@@ -20,6 +24,8 @@ export function Providers({ children }: { children: ReactNode }) {
 }
 
 function ViewerProviders({ children }: { children: ReactNode }) {
+  const [ready, setReady] = useState(false);
+  const [initialError, setInitialError] = useState(false);
   const [queryClient] = useState(
     () =>
       new QueryClient({
@@ -29,28 +35,32 @@ function ViewerProviders({ children }: { children: ReactNode }) {
       })
   );
 
-  // store 配置了 skipHydration：等挂载后再读 localStorage，
-  // 保证 hydration 阶段客户端与服务端渲染结果一致。
+  // 身份与个人数据就绪后再挂载页面，避免闪现其他账号或旧缓存。
   useEffect(() => {
-    // 先等持久化状态恢复，再拉服务端下发数据：
-    // 避免 setEnvSources/setLiveEnvSources 的勾选合并发生在 rehydrate 之前被覆盖
-    Promise.resolve(useAppStore.persist.rehydrate())
-      .then(() => {
-        // 测活缓存从 IndexedDB 恢复（并顺带搬迁旧 localStorage 快照里的存量），
-        // 与下方 /api/status 拉取互不依赖，失败静默
-        void hydrateLiveProbeResults();
-        // 拉取部署者通过 DEFAULT_SOURCES / DEFAULT_LIVE_SOURCES 预置的源（失败时静默忽略）
-        // 与 AuthProvider 共用同一 query key，/api/status 全站只发一次
-        return queryClient.fetchQuery({ queryKey: STATUS_QUERY_KEY, queryFn: () => api.status() });
-      })
-      .then((d) => {
-        // 预置数据（DEFAULT_SOURCES / DEFAULT_LIVE_SOURCES / DEFAULT_SUBSCRIPTIONS）
-        // 预置订阅要经鉴权接口拉取，首屏这次可能发生在登录之前而 401 静默失败；
-        // 登录成功后由 AuthProvider 再调一次 applyEnvPresets 补齐（函数幂等）
-        if (d) return applyEnvPresets(d);
-      })
-      .catch(() => {});
+    let cancelled = false;
+    void (async () => {
+      // 先确定账号，再从服务器读取个人数据。
+      const status = await queryClient.fetchQuery({ queryKey: STATUS_QUERY_KEY, queryFn: () => api.status() });
+      if (cancelled) return;
+      setClientDataScope(status.user?.id || null, status.authMode === 'account');
+      useAppStore.setState(useAppStore.getInitialState(), true);
+      await clearObsoletePersonalStorage().catch(() => {});
+      if (cancelled) return;
+      if (status.authMode === 'account' && status.user) {
+        await startAccountData(status.user.id, () => {
+          void queryClient.invalidateQueries({ queryKey: ['searchHistory'] });
+          void queryClient.invalidateQueries({ queryKey: ['viewingHistory'] });
+        });
+      }
+      if (cancelled) return;
+      void hydrateLiveProbeResults();
+      if (!cancelled) setReady(true);
+      await applyEnvPresets(status);
+    })().catch(() => { if (!cancelled) setInitialError(true); });
+    return () => { cancelled = true; stopAccountData(); };
   }, [queryClient]);
+
+  if (!ready) return <main className="min-h-screen flex items-center justify-center p-6"><div className="text-center space-y-4"><p className="text-muted">{initialError ? '无法连接服务，请检查网络后重试。' : '正在连接服务…'}</p>{initialError && <button className="btn-primary" onClick={() => window.location.reload()}>重新连接</button>}</div></main>;
 
   return (
     <QueryClientProvider client={queryClient}>
@@ -59,7 +69,8 @@ function ViewerProviders({ children }: { children: ReactNode }) {
           {/* 全站常驻：下载事件监听（enqueueDownload）依赖它存在——
               挂在 Header 里会让 /watch 等不渲染 Header 的页面派发的事件凭空丢失 */}
           <GlobalDownloadManager />
-          <AuthProvider>{children}</AuthProvider>
+          <AccountDataNotice />
+          <AuthProvider initialStatus={queryClient.getQueryData<AuthStatusResponse>(STATUS_QUERY_KEY)}>{children}</AuthProvider>
         </ToastProvider>
       </ThemeProvider>
     </QueryClientProvider>

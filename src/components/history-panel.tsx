@@ -1,7 +1,8 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { useLiveQuery } from 'dexie-react-hooks';
+import { useQuery } from '@tanstack/react-query';
+import { refreshAccountData } from '@/lib/account-data';
 import Link from 'next/link';
 import { Drawer } from './drawer';
 import { ConfirmDialog } from './confirm-dialog';
@@ -9,11 +10,10 @@ import { EmptyState, LoadingState } from './states';
 import { Icon } from './icon';
 import { SmartImage } from './smart-image';
 import {
-  db,
+  getHistory,
   clearAllHistory,
   removeHistory,
   upsertHistory,
-  MAX_HISTORY,
   type HistoryEntry,
 } from '@/lib/db';
 import { buildWatchUrl, cn, formatRelativeTime, formatTime } from '@/lib/utils';
@@ -21,7 +21,7 @@ import { useToast } from './toast';
 import { resolveSource, useAppStore } from '@/lib/store';
 
 /**
- * 观看历史面板（IndexedDB 实时查询）。
+ * 观看历史面板（服务器确认后的内存数据）。
  * 与旧版的区别：播放前按需重新拉取剧集详情，不再依赖历史记录里冗余存储的全集 URL。
  * 破坏性操作分级：清空全部走确认弹窗，删除单条支持撤销。
  */
@@ -31,10 +31,8 @@ const VISIBLE_LIMIT = 50;
 
 export function HistoryPanel({ open, onClose }: { open: boolean; onClose: () => void }) {
   // 全量读取（上限即 DB 淘汰上限）：默认只渲染最近若干条，搜索时覆盖更早的记录
-  const history = useLiveQuery(
-    () => db.history.orderBy('timestamp').reverse().limit(MAX_HISTORY).toArray(),
-    [open]
-  );
+  const history = useQuery({ queryKey: ['viewingHistory'], queryFn: getHistory }).data;
+  useEffect(() => { if (open) void refreshAccountData(); }, [open]);
   const { toast } = useToast();
   const [confirmClear, setConfirmClear] = useState(false);
   const [query, setQuery] = useState('');
@@ -127,7 +125,7 @@ export function HistoryPanel({ open, onClose }: { open: boolean; onClose: () => 
         confirmLabel="清空"
         onCancel={() => setConfirmClear(false)}
         onConfirm={() => {
-          void clearAllHistory().then(() => toast('观看历史已清空', 'success'));
+          void clearAllHistory().then(() => toast('观看历史已清空', 'success')).catch(() => toast('清空失败，请检查网络后重试', 'error'));
           setConfirmClear(false);
         }}
       />
@@ -177,11 +175,11 @@ function HistoryItem({ item }: { item: HistoryEntry }) {
               playbackPosition: item.playbackPosition,
               duration: item.duration,
               timestamp: item.timestamp,
-            }).then(() => toast('已恢复', 'success'));
+            }).then(() => toast('已恢复', 'success')).catch(() => toast('恢复失败，请重试', 'error'));
           },
         },
       });
-    });
+    }).catch(() => toast('删除失败，请检查网络后重试', 'error'));
   };
 
   return (

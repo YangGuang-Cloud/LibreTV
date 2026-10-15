@@ -1,14 +1,12 @@
 'use client';
 
 import { create } from 'zustand';
-import { createJSONStorage, persist } from 'zustand/middleware';
 import type { SourceConfig, LiveSourceConfig, SourceSearchOutcome } from './types';
 import { clearLiveProbeResultsDb, loadLiveProbeResults, saveLiveProbeResults } from './db';
-import { PERSIST_KEY, createThrottledStorage } from './persist-storage';
 
 /**
- * 全局设置（zustand + localStorage 持久化）。
- * 旧版把 10+ 个零散 localStorage key 当作跨页面状态总线，这里统一为单一 store。
+ * 全局设置（zustand 内存状态，个人配置由账号服务持久化）。
+ * 页面间共享内存状态，刷新后重新从服务器读取。
  */
 
 export interface AppSettings {
@@ -195,9 +193,9 @@ interface AppState extends AppSettings {
   liveFavorites: string[];
   /** 最近观看频道（上限 20） */
   liveRecent: LiveRecentEntry[];
-  /** 测活结果缓存（6 小时有效，跨会话持久化） */
+  /** 测活结果缓存（6 小时有效，仅本页保留） */
   liveProbeResults: Record<string, LiveProbeEntry>;
-  /** 点播源健康度（随搜索滚动更新，跨会话持久化） */
+  /** 点播源健康度（随搜索滚动更新，仅本页保留） */
   sourceHealth: Record<string, SourceHealthEntry>;
   /** 已出现过的 env 预置订阅 URL（持久化：用户删除后不再被自动加回） */
   envSubsSeen: string[];
@@ -269,13 +267,8 @@ function nextCustomKey(apiList: SourceConfig[]): string {
   return `custom_${i}`;
 }
 
-/**
- * 节流写入的 localStorage 包装已抽至 persist-storage.ts（db.ts 的 importConfig
- * 需要在直接写盘前 flush 缓冲，而运行时依赖方向是 store → db，不能反向引用）。
- */
-
+/** 个人设置只放内存，由账号服务读取和保存。 */
 export const useAppStore = create<AppState>()(
-  persist(
     (set, get) => ({
       serverSourceMode: false,
       customAPIs: [],
@@ -584,7 +577,7 @@ export const useAppStore = create<AppState>()(
         });
       },
 
-      // 批量启停：一次 set 替代 N 次逐条 toggle（每条都会触发一次完整 persist 序列化）
+      // 批量启停：一次 set 替代 N 次逐条 toggle（每条都会触发一次状态通知）
       toggleLiveSelectedMany: (urls) => {
         const cur = get().liveSelectedUrls;
         let next = cur;
@@ -737,77 +730,10 @@ export const useAppStore = create<AppState>()(
           ...(imageTouched ? { imageProxyModeTouched: true } : null),
         });
       },
-    }),
-    {
-      name: PERSIST_KEY,
-      // 节流写入：搜索 / 测活等高频 set 不再每次都整份序列化写盘
-      storage: createJSONStorage(createThrottledStorage),
-      // v1：直播源新增归属字段、最近观看新增 sourceUrl。
-      // v2：直播源归属改为多引用（fromSubscription 单值 → fromSubscriptions 数组）。
-      // 此前未声明 version 的存量数据会被视为 v0 并走 migrate 补齐。
-      version: 2,
-      migrate: (persisted, version) => {
-        const state = { ...((persisted ?? {}) as Partial<AppState>) };
-        if (!Array.isArray(state.liveRecent)) state.liveRecent = [];
-        if (!Array.isArray(state.liveSubscriptions)) state.liveSubscriptions = [];
-        if (version < 2) {
-          state.liveSubscriptions = state.liveSubscriptions.map((s) => {
-            const legacy = s as LiveSubscription & { fromSubscription?: unknown };
-            const fromSubscriptions = Array.isArray(legacy.fromSubscriptions)
-              ? legacy.fromSubscriptions
-              : typeof legacy.fromSubscription === 'string' && legacy.fromSubscription
-                ? [legacy.fromSubscription]
-                : [];
-            // 显式构造以剔除旧的单值字段，避免新旧字段并存
-            return {
-              url: legacy.url,
-              name: legacy.name,
-              epg: legacy.epg,
-              lastSync: legacy.lastSync,
-              fromSubscriptions,
-            };
-          });
-        }
-        return state as AppState;
-      },
-      // envSources 由服务端每次下发，不进 localStorage；
-      // liveProbeResults 体积大且写入频繁，持久化走 IndexedDB（db.ts liveProbe 表），不进 localStorage
-      partialize: (s) => ({
-        customAPIs: s.customAPIs,
-        selectedKeys: s.selectedKeys,
-        envKeysSeen: s.envKeysSeen,
-        subscriptions: s.subscriptions,
-        liveEnvKeysSeen: s.liveEnvKeysSeen,
-        liveSubscriptions: s.liveSubscriptions,
-        liveSelectedUrls: s.liveSelectedUrls,
-        liveFavorites: s.liveFavorites,
-        liveRecent: s.liveRecent,
-        sourceHealth: s.sourceHealth,
-        envSubsSeen: s.envSubsSeen,
-        yellowFilter: s.yellowFilter,
-        adFilter: s.adFilter,
-        doubanEnabled: s.doubanEnabled,
-        recommendSource: s.recommendSource,
-        recommendSourceTouched: s.recommendSourceTouched,
-        autoplayNext: s.autoplayNext,
-        imageProxyMode: s.imageProxyMode,
-        imageProxyModeTouched: s.imageProxyModeTouched,
-        customImageProxy: s.customImageProxy,
-      }),
-      // 同步 storage 会在模块加载时立即 rehydrate（早于 React hydration），
-      // 一旦首屏渲染依赖持久化状态就会与 SSR 输出不一致。
-      // 改为由 Providers 在挂载后手动 rehydrate。
-      skipHydration: true,
-    }
-  )
+    })
 );
 
-/**
- * 从 IndexedDB 恢复测活缓存（Providers 挂载后、persist.rehydrate 之后调用）。
- * - 必须晚于 rehydrate：旧版本把 liveProbeResults 存在 localStorage 的设置快照里，
- *   rehydrate 会先把它读进内存，这里合并后一次性搬迁进 IndexedDB，快照随下次持久化自然瘦身；
- * - 顺带清理表中过期行；IndexedDB 不可用时静默跳过（本会话仍可测活，只是不缓存）。
- */
+/** 恢复设备上的直播测速缓存；个人设置由服务器提供。 */
 export async function hydrateLiveProbeResults(): Promise<void> {
   try {
     const now = Date.now();

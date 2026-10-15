@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
-import { isPasswordConfigured, sessionFromCookieHeader } from '@/lib/auth';
+import { viewerConfigured, viewerSession } from '@/lib/viewer-session';
+import { accountMode } from '@/lib/account-mode';
 import { getEnvSources } from '@/lib/env-sources';
 import { getEnvLiveSources } from '@/lib/env-live-sources';
 import { getEnvSubscriptions } from '@/lib/env-subscriptions';
@@ -11,8 +12,10 @@ export const runtime = 'nodejs';
 
 /** 站点状态：客户端据此决定是否弹出登录框 / 提示管理员配置密码，并获取预置采集站与预置直播源 */
 export async function GET(req: Request) {
-  const passwordRequired = isPasswordConfigured();
-  const verified = passwordRequired && sessionFromCookieHeader(req.headers.get('cookie'));
+  const passwordRequired = viewerConfigured();
+  const { getAccountSession } = accountMode() && passwordRequired ? await import('@/lib/account-auth') : { getAccountSession: null };
+  const session = getAccountSession ? await getAccountSession(req.headers) : null;
+  const verified = accountMode() ? !!session : await viewerSession(req);
   const managed = serverSourceMode();
   let sources = verified ? getEnvSources() : [];
   if (verified && managed) {
@@ -22,6 +25,8 @@ export async function GET(req: Request) {
   return NextResponse.json({
     passwordRequired,
     verified,
+    authMode: accountMode() ? 'account' : 'password',
+    user: session ? { id: session.user.id, username: session.user.username, name: session.user.name } : null,
     sourceMode: managed ? 'server' : 'client',
     // 构建时由 next.config.ts 从 package.json 注入
     version: process.env.APP_VERSION || 'dev',

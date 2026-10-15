@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import { accountConfigured, accountMode } from './account-mode';
 
 /**
  * 会话鉴权：httpOnly cookie + HMAC 签名。
@@ -21,6 +22,10 @@ export function isPasswordConfigured(): boolean {
 }
 
 function getSecret(): string {
+  if (accountMode()) {
+    if (!accountConfigured()) throw new Error('账号模式未配置');
+    return process.env.BETTER_AUTH_SECRET!;
+  }
   if (process.env.PROXY_SECRET) return process.env.PROXY_SECRET;
   return crypto.createHash('sha256').update(getPassword() + ':libretv::session-salt').digest('hex');
 }
@@ -35,7 +40,7 @@ export function signMediaURL(target: string, expiresAt: number): string {
 }
 
 export function verifyMediaURL(target: string, expires: string | null, signature: string | null): boolean {
-  if (!isPasswordConfigured() || !expires || !/^\d{13}$/.test(expires) || !signature || !/^[a-f0-9]{64}$/.test(signature)) return false;
+  if (!(accountMode() ? accountConfigured() : isPasswordConfigured()) || !expires || !/^\d{13}$/.test(expires) || !signature || !/^[a-f0-9]{64}$/.test(signature)) return false;
   const deadline = Number(expires);
   if (deadline <= Date.now() || deadline > Date.now() + 6 * 60 * 60 * 1000) return false;
   return crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(signMediaURL(target, deadline)));

@@ -1,17 +1,14 @@
 import Dexie, { type EntityTable } from 'dexie';
 import type { SourceConfig } from './types';
+import { accountClient, cachedAccountClient } from './account-data-client';
+import { type AccountChange } from './account-data-client';
+import { settingsMap } from './sync-settings';
 // 仅类型引入：store.ts 运行时会引用本模块，反向只取类型不会形成运行时循环
 import type { LiveProbeEntry } from './store';
-import { PERSIST_KEY, flushPendingPersist } from './persist-storage';
+import { isObject } from './sync-model';
+export const PERSIST_KEY = 'libretv-settings'; // 只用于手动导入/导出的文件格式
 
-/**
- * IndexedDB 持久化（替代旧版 localStorage 数据库）：
- * - 观看历史不再冗余存储全集 URL 列表（旧版长剧 × 50 条极易撑爆 5MB 配额），
- *   只存定位信息（sourceKey+vodId+index），进入播放页时按需重新拉详情，
- *   顺带免费获得「剧集更新同步」能力。
- * - v2：直播测活缓存从 localStorage（随 zustand persist 整体重写）迁入独立表，
- *   高频写入不再拖累设置快照的序列化。
- */
+/** IndexedDB 只保存视频缓存、下载任务和测速结果；个人数据直接读写账号数据库。 */
 
 export interface HistoryEntry {
   /** 主键：`${sourceKey}_${vodId}` */
@@ -70,122 +67,120 @@ export interface DownloadTaskEntry {
   updatedAt: number;
 }
 
-export const db = new Dexie('libretv') as Dexie & {
-  history: EntityTable<HistoryEntry, 'id'>;
-  progress: EntityTable<ProgressEntry, 'key'>;
-  searchHistory: EntityTable<SearchHistoryEntry, 'text'>;
-  liveProbe: EntityTable<LiveProbeEntry & { url: string }, 'url'>;
-  segmentMeta: EntityTable<SegmentMetaEntry, 'key'>;
-  downloads: EntityTable<DownloadTaskEntry, 'id'>;
-};
+export function createClientDatabase(name: string) {
+  const database = new Dexie(name) as Dexie & {
+    liveProbe: EntityTable<LiveProbeEntry & { url: string }, 'url'>;
+    segmentMeta: EntityTable<SegmentMetaEntry, 'key'>;
+    downloads: EntityTable<DownloadTaskEntry, 'id'>;
+  };
 
-db.version(1).stores({
-  history: 'id, timestamp',
-  progress: 'key, updatedAt',
-  searchHistory: 'text, timestamp',
-});
+  database.version(1).stores({
+    history: 'id, timestamp',
+    progress: 'key, updatedAt',
+    searchHistory: 'text, timestamp',
+  });
 
-// v2 仅新增表；Dexie 会自动继承低版本的表结构
-db.version(2).stores({
-  liveProbe: 'url',
-});
+  // v2 仅新增表；Dexie 会自动继承低版本的表结构
+  database.version(2).stores({
+    liveProbe: 'url',
+  });
 
-// v3：视频片段缓存元数据（Cache Storage 存字节、这里存 LRU 索引）与离线下载任务
-db.version(3).stores({
-  segmentMeta: 'key, episodeKey, lastAccess',
-  downloads: 'id, createdAt',
-});
+  // v3：视频片段缓存元数据（Cache Storage 存字节、这里存 LRU 索引）与离线下载任务
+  database.version(3).stores({
+    segmentMeta: 'key, episodeKey, lastAccess',
+    downloads: 'id, createdAt',
+  });
+
+  database.version(4).stores({
+    syncRows: 'id, collection',
+    syncOutbox: 'id, collection',
+    syncMeta: 'key',
+  });
+  // 清理旧版个人数据表，设备缓存和下载任务保持原样。
+  database.version(5).stores({ history: null, progress: null, searchHistory: null, syncRows: null, syncOutbox: null, syncMeta: null });
+  return database;
+}
+
+export type ClientDatabase = ReturnType<typeof createClientDatabase>;
+export let db = createClientDatabase('libretv');
+
+/** 在挂载业务组件前切换设备缓存和下载任务所属的账号。 */
+export function setClientDataScope(userId: string | null, accounts: boolean): void {
+  const scope = accounts ? (userId || 'guest') : '';
+  const name = scope ? `libretv-account-${scope}` : 'libretv';
+  if (db.name === name) return;
+  db.close();
+  db = createClientDatabase(name);
+}
 
 export const MAX_HISTORY = 100;
 export const MAX_SEARCH_HISTORY = 10;
 
+export function getHistory(): HistoryEntry[] {
+  return (cachedAccountClient()?.values<HistoryEntry>('history') || []).sort((a, b) => b.timestamp - a.timestamp).slice(0, MAX_HISTORY);
+}
+export function getSearchHistory(): SearchHistoryEntry[] {
+  return (cachedAccountClient()?.values<SearchHistoryEntry>('search') || []).sort((a, b) => b.timestamp - a.timestamp).slice(0, MAX_SEARCH_HISTORY);
+}
+export async function getProgress(key: string): Promise<ProgressEntry | undefined> {
+  const client = accountClient();
+  await client.refresh();
+  return client.get<ProgressEntry>('progress', key);
+}
 export async function upsertHistory(entry: Omit<HistoryEntry, 'id'>): Promise<void> {
-  const id = `${entry.sourceKey}_${entry.vodId}`;
-  const existing = await db.history.get(id);
-  const merged: HistoryEntry = {
-    ...existing,
-    ...entry,
-    id,
-    playbackPosition: entry.playbackPosition > 10 ? entry.playbackPosition : existing?.playbackPosition ?? 0,
-    duration: entry.duration || existing?.duration || 0,
-    timestamp: Date.now(),
-  };
-  await db.history.put(merged);
-  // 淘汰最旧记录
-  const count = await db.history.count();
-  if (count > MAX_HISTORY) {
-    const oldest = await db.history.orderBy('timestamp').limit(count - MAX_HISTORY).toArray();
-    await db.history.bulkDelete(oldest.map((o) => o.id));
-  }
-}
-
-export async function updateHistoryProgress(
-  sourceKey: string,
-  vodId: string,
-  position: number,
-  duration: number
-): Promise<void> {
-  const id = `${sourceKey}_${vodId}`;
-  const existing = await db.history.get(id);
-  if (!existing) return;
-  if (Math.abs(existing.playbackPosition - position) < 2 && Math.abs(existing.duration - duration) < 2) return;
-  await db.history.update(id, {
-    playbackPosition: position,
-    duration,
-    timestamp: Date.now(),
+  await accountClient().write((client) => {
+    const id = `${entry.sourceKey}_${entry.vodId}`;
+    const existing = client.get<HistoryEntry>('history', id);
+    const sameEpisode = existing?.episodeIndex === entry.episodeIndex;
+    return [{ collection: 'history', key: id, value: { ...entry, id,
+      playbackPosition: entry.playbackPosition > 0 ? entry.playbackPosition : sameEpisode ? existing?.playbackPosition ?? 0 : 0,
+      duration: entry.duration || (sameEpisode ? existing?.duration : 0) || 0, timestamp: Date.now(),
+    } }];
   });
 }
-
+export async function updateHistoryProgress(sourceKey: string, vodId: string, position: number, duration: number): Promise<void> {
+  await accountClient().write((client) => {
+    const id = `${sourceKey}_${vodId}`;
+    const existing = client.get<HistoryEntry>('history', id);
+    if (!existing || (Math.abs(existing.playbackPosition - position) < 2 && Math.abs(existing.duration - duration) < 2)) return [];
+    return [{ collection: 'history', key: id, value: { ...existing, playbackPosition: position, duration, timestamp: Date.now() } }];
+  });
+}
 export async function removeHistory(sourceKey: string, vodId: string): Promise<void> {
-  await db.history.delete(`${sourceKey}_${vodId}`);
+  await accountClient().write([{ collection: 'history', key: `${sourceKey}_${vodId}`, value: null }]);
 }
-
 export async function clearAllHistory(): Promise<void> {
-  // 一并清进度表：否则从历史重新打开时可能取到已清空的旧进度
-  await Promise.all([db.history.clear(), db.progress.clear()]);
+  await accountClient().write((client) => client.rows().filter((row) => ['history', 'progress'].includes(row.collection) && row.value !== null).map((row) => ({ collection: row.collection, key: row.key, value: null })));
 }
-
-export function progressKeyOf(sourceKey: string, vodId: string, episodeIndex: number): string {
-  return `${sourceKey}_${vodId}_${episodeIndex}`;
-}
-
+export function progressKeyOf(sourceKey: string, vodId: string, episodeIndex: number): string { return `${sourceKey}_${vodId}_${episodeIndex}`; }
 export async function saveProgress(sourceKey: string, vodId: string, episodeIndex: number, position: number, duration: number): Promise<void> {
-  if (!duration || position < 1) return;
-  await db.progress.put({
-    key: progressKeyOf(sourceKey, vodId, episodeIndex),
-    position,
-    duration,
-    updatedAt: Date.now(),
-  });
+  if (!Number.isFinite(duration) || !Number.isFinite(position) || !duration || position < 1) return;
+  const key = progressKeyOf(sourceKey, vodId, episodeIndex);
+  await accountClient().write([{ collection: 'progress', key, value: { key, position, duration, updatedAt: Date.now() } }]);
 }
-
 export async function clearProgress(sourceKey: string, vodId: string, episodeIndex: number): Promise<void> {
-  await db.progress.delete(progressKeyOf(sourceKey, vodId, episodeIndex));
+  await accountClient().write([{ collection: 'progress', key: progressKeyOf(sourceKey, vodId, episodeIndex), value: null }]);
 }
-
 export async function addSearchHistory(text: string): Promise<void> {
-  const t = text.trim().slice(0, 50);
-  if (!t) return;
-  await db.searchHistory.put({ text: t, timestamp: Date.now() });
-  const count = await db.searchHistory.count();
-  if (count > MAX_SEARCH_HISTORY) {
-    const oldest = await db.searchHistory.orderBy('timestamp').limit(count - MAX_SEARCH_HISTORY).toArray();
-    await db.searchHistory.bulkDelete(oldest.map((o) => o.text));
-  }
+  const key = text.trim().slice(0, 50);
+  if (key) await accountClient().write([{ collection: 'search', key, value: { text: key, timestamp: Date.now() } }]);
 }
-
-export async function removeSearchHistory(text: string): Promise<void> {
-  await db.searchHistory.delete(text);
-}
-
+export async function removeSearchHistory(text: string): Promise<void> { await accountClient().write([{ collection: 'search', key: text, value: null }]); }
 export async function clearSearchHistory(): Promise<void> {
-  await db.searchHistory.clear();
+  await accountClient().write((client) => client.rows().filter((row) => row.collection === 'search' && row.value !== null).map((row) => ({ collection: 'search', key: row.key, value: null })));
+}
+export async function restoreSearchHistory(entries: SearchHistoryEntry[]): Promise<void> {
+  await accountClient().write(entries.map((entry) => ({ collection: 'search', key: entry.text, value: entry })));
 }
 
-/** 撤销「清空搜索记录」：按原时间戳回填，保持原有顺序 */
-export async function restoreSearchHistory(entries: SearchHistoryEntry[]): Promise<void> {
-  if (entries.length === 0) return;
-  await db.searchHistory.bulkPut(entries);
+/** 移除旧的自动持久化副本，保留视频缓存、下载任务以及主题等设备设置。 */
+export async function clearObsoletePersonalStorage() {
+  for (const key of Object.keys(localStorage)) if (key === PERSIST_KEY || key.startsWith(`${PERSIST_KEY}:account:`)) localStorage.removeItem(key);
+  for (const name of await Dexie.getDatabaseNames()) {
+    if (name !== 'libretv' && !name.startsWith('libretv-account-')) continue;
+    const database = name === db.name ? db : createClientDatabase(name);
+    try { await database.open(); } finally { if (database !== db) database.close(); }
+  }
 }
 
 // —— 直播测活缓存（TTL 过滤由调用方负责，本层只管存取） ——
@@ -209,60 +204,51 @@ export async function clearLiveProbeResultsDb(): Promise<void> {
 // —— 配置导入导出（兼容旧版 LibreTV-Settings JSON 结构的导出格式） ——
 
 export async function exportConfig(): Promise<string> {
-  // 导出前 flush：把节流缓冲中的最新设置落盘，避免导出的是 800ms 前的旧快照
-  flushPendingPersist();
-  const history = await db.history.toArray();
-  const settings = localStorage.getItem(PERSIST_KEY);
-
-  const data: Record<string, unknown> = {
-    viewingHistory: JSON.stringify(history),
-  };
-  if (settings) data[PERSIST_KEY] = settings;
-
-  return JSON.stringify({
-    name: 'LibreTV-Settings',
-    time: Date.now().toString(),
-    cfgVer: '2.0.0',
-    data,
-  });
+  const client = accountClient(); await client.refresh();
+  const state: Record<string, unknown> = {};
+  for (const row of client.rows()) if (row.collection === 'preference' && row.value !== null) state[row.key] = row.value;
+  state.liveFavorites = client.rows().filter((row) => row.collection === 'favorite' && row.value === true).map((row) => row.key);
+  state.liveRecent = client.values('recent');
+  return JSON.stringify({ name: 'LibreTV-Settings', time: String(Date.now()), cfgVer: '3.0.0', data: {
+    [PERSIST_KEY]: JSON.stringify({ state, version: 2 }), viewingHistory: JSON.stringify(client.values('history')),
+    playbackProgress: JSON.stringify(client.values('progress')), searchHistory: JSON.stringify(client.values('search')),
+  } });
 }
-
 export async function importConfig(content: string): Promise<void> {
-  const config = JSON.parse(content) as {
-    name?: string;
-    data?: Record<string, string>;
-  };
-  if (config.name !== 'LibreTV-Settings') throw new Error('配置文件格式不正确');
-  const data = config.data || {};
-
+  const config: unknown = JSON.parse(content);
+  if (!isObject(config) || config.name !== 'LibreTV-Settings' || !isObject(config.data)) throw new Error('配置文件格式不正确');
+  const changes: AccountChange[] = [];
+  const data = config.data;
   if (typeof data[PERSIST_KEY] === 'string') {
-    // 关键：先 flush 节流缓冲中的旧状态再写导入配置，否则缓冲会在
-    // 之后 flush 时用导入前的旧状态覆盖刚写入的配置（导入静默丢失）
-    flushPendingPersist();
-    localStorage.setItem(PERSIST_KEY, data[PERSIST_KEY]);
+    const settings = JSON.parse(data[PERSIST_KEY]);
+    changes.push(...settingsMap(settings.state).values());
   }
-
-  if (typeof data['viewingHistory'] === 'string') {
-    // 兼容旧版历史结构（含全集 URL 列表），只迁移定位信息
-    const legacy = JSON.parse(data['viewingHistory']) as Record<string, unknown>[];
-    for (const item of legacy.slice(0, MAX_HISTORY)) {
-      const sourceKey = String(item.sourceCode || item.sourceName || '');
-      const vodId = String(item.vod_id || '');
-      const title = String(item.title || '未知视频');
+  if (typeof data.viewingHistory === 'string') {
+    const history: unknown = JSON.parse(data.viewingHistory);
+    if (!Array.isArray(history)) throw new Error('历史格式不正确');
+    for (const item of history.slice(0, MAX_HISTORY)) {
+      if (!isObject(item)) throw new Error('历史格式不正确');
+      const sourceKey = String(item.sourceKey || item.sourceCode || item.sourceName || '');
+      const vodId = String(item.vodId || item.vod_id || '');
       if (!sourceKey || !vodId) continue;
-      const totalEpisodes = Array.isArray(item.episodes) ? item.episodes.length : 0;
-      await upsertHistory({
-        sourceKey,
-        vodId,
-        title,
-        episodeIndex: typeof item.episodeIndex === 'number' ? item.episodeIndex : 0,
-        totalEpisodes,
-        playbackPosition: typeof item.playbackPosition === 'number' ? item.playbackPosition : 0,
-        duration: typeof item.duration === 'number' ? item.duration : 0,
-        timestamp: typeof item.timestamp === 'number' ? item.timestamp : Date.now(),
-      });
+      const key = `${sourceKey}_${vodId}`;
+      changes.push({ collection: 'history', key, value: {
+        id: key, sourceKey, vodId, title: String(item.title || '未知视频'),
+        episodeIndex: item.episodeIndex ?? 0, totalEpisodes: item.totalEpisodes ?? (Array.isArray(item.episodes) ? item.episodes.length : 0),
+        playbackPosition: item.playbackPosition ?? 0, duration: item.duration ?? 0, timestamp: item.timestamp ?? Date.now(),
+        ...(typeof item.pic === 'string' ? { pic: item.pic } : {}), ...(typeof item.sourceUrl === 'string' ? { sourceUrl: item.sourceUrl } : {}),
+      } });
     }
   }
+  for (const [field, collection, keyField] of [['playbackProgress', 'progress', 'key'], ['searchHistory', 'search', 'text']] as const) {
+    if (typeof data[field] !== 'string') continue;
+    const rows: unknown = JSON.parse(data[field]);
+    if (!Array.isArray(rows)) throw new Error('记录格式不正确');
+    for (const row of rows) {
+      if (!isObject(row) || typeof row[keyField] !== 'string') throw new Error('记录格式不正确');
+      changes.push({ collection, key: row[keyField], value: row });
+    }
+  }
+  await accountClient().write(changes);
 }
-
 export type { SourceConfig };

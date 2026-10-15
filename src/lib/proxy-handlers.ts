@@ -73,7 +73,7 @@ export async function handleProxyRequest(req: Request, targetUrl: string): Promi
   const params = new URL(req.url).searchParams;
   const expires = params.get('mediaExpires');
   const mediaAuthorized = verifyMediaURL(targetUrl, expires, params.get('mediaSignature'));
-  const guarded = mediaAuthorized ? null : guardRequest(req);
+  const guarded = mediaAuthorized ? null : await guardRequest(req);
   if (guarded && !looksLikeImageUrl(targetUrl)) return guarded;
 
   if (!isValidProxyUrl(targetUrl)) {
@@ -179,7 +179,7 @@ export async function handleProxyRequest(req: Request, targetUrl: string): Promi
  * - 部署者可设 LIVE_ALLOW_PRIVATE=1 显式放行内网自建源（默认拒绝）。
  */
 export async function handleLiveStreamRequest(req: Request, targetUrl: string): Promise<Response> {
-  const guarded = guardRequest(req);
+  const guarded = await guardRequest(req);
   if (guarded) return guarded;
 
   const verdict = await checkLiveUrlAllowed(targetUrl);

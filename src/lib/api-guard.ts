@@ -1,15 +1,15 @@
 import { NextResponse } from 'next/server';
-import { isPasswordConfigured, sessionFromCookieHeader } from './auth';
+import { viewerConfigured, viewerSession } from './viewer-session';
 
 /** API Route 共享守卫：未配置密码返回 503，未登录返回 401 */
-export function guardRequest(req: Request): NextResponse | null {
-  if (!isPasswordConfigured()) {
+export async function guardRequest(req: Request): Promise<NextResponse | null> {
+  if (!viewerConfigured()) {
     return NextResponse.json(
-      { error: '服务器未设置 PASSWORD 环境变量' },
+      { error: '服务器尚未配置登录方式，请联系管理员' },
       { status: 503 }
     );
   }
-  if (!sessionFromCookieHeader(req.headers.get('cookie'))) {
+  if (!await viewerSession(req)) {
     return NextResponse.json({ error: '未登录' }, { status: 401 });
   }
   return null;

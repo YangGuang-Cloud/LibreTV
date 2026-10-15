@@ -2,7 +2,8 @@
 
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { addSearchHistory, clearSearchHistory, db, removeSearchHistory, restoreSearchHistory } from '@/lib/db';
+import { addSearchHistory, clearSearchHistory, getSearchHistory, removeSearchHistory, restoreSearchHistory } from '@/lib/db';
+import { refreshAccountData } from '@/lib/account-data';
 import { cn } from '@/lib/utils';
 import { useToast } from './toast';
 import { Icon } from './icon';
@@ -23,7 +24,7 @@ export function useSearchHistory(input: string) {
 
   const history = useQuery({
     queryKey: ['searchHistory'],
-    queryFn: () => db.searchHistory.orderBy('timestamp').reverse().limit(HISTORY_LIMIT).toArray(),
+    queryFn: () => getSearchHistory().slice(0, HISTORY_LIMIT),
   });
 
   const matches = useMemo(() => {
@@ -59,21 +60,21 @@ export function useSearchHistory(input: string) {
 
   const remove = (text: string) => {
     setActiveIndex(-1);
-    removeSearchHistory(text).then(() => history.refetch());
+    removeSearchHistory(text).then(() => history.refetch()).catch(() => toast('删除失败，请检查网络后重试', 'error'));
   };
 
   const clearAll = async () => {
     const snapshot = history.data ?? [];
     if (snapshot.length === 0) return;
     close();
-    await clearSearchHistory();
+    try { await clearSearchHistory(); } catch { toast('清空失败，请检查网络后重试', 'error'); return; }
     await history.refetch();
     // 轻量破坏性操作：给一次撤销机会，不打断式弹确认
     toast('已清空搜索记录', 'info', {
       action: {
         label: '撤销',
         onClick: () => {
-          restoreSearchHistory(snapshot).then(() => history.refetch());
+          restoreSearchHistory(snapshot).then(() => history.refetch()).catch(() => toast('恢复失败，请重试', 'error'));
         },
       },
     });
@@ -81,7 +82,8 @@ export function useSearchHistory(input: string) {
 
   const onFocus = () => {
     setOpen(true);
-    history.refetch();
+    void refreshAccountData();
+    void history.refetch();
   };
 
   const onKeyDown = (e: KeyboardEvent<HTMLInputElement>, onPick: (text: string) => void) => {

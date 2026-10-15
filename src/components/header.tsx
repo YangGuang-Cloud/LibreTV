@@ -1,5 +1,7 @@
 'use client';
 
+import { AccountMenu } from './account-menu';
+
 import Link from 'next/link';
 import { useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
@@ -103,6 +105,7 @@ export function Header({ showSearch = false }: { showSearch?: boolean }) {
             <HeaderLink href="/about" active={pathname === '/about'}>
               关于
             </HeaderLink>
+            <AccountMenu />
             <ThemeToggle />
             <IconButton label="观看历史" onClick={() => setHistoryOpen(true)}>
               <Icon name="clock" />
@@ -128,7 +131,7 @@ function HeaderLink({ href, active, children }: { href: string; active: boolean;
     <Link
       href={href}
       className={cn(
-        'px-2.5 py-1.5 rounded-md text-sm transition-colors',
+        'px-2 sm:px-2.5 py-1.5 rounded-md text-sm transition-colors whitespace-nowrap shrink-0',
         active ? 'text-content bg-hover' : 'text-muted hover:text-content'
       )}
     >

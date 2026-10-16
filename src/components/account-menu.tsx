@@ -17,8 +17,8 @@ export function AccountMenu() {
     <summary className="btn-ghost text-sm cursor-pointer max-w-28 truncate" aria-label={`账号：${user.name}`} title={user.name}><span className="sm:hidden">账号</span><span className="hidden sm:inline">{user.name}</span></summary>
     <div className="absolute right-0 mt-2 w-72 max-w-[90vw] card p-4 shadow-xl space-y-3 z-50">
       <p className="text-sm text-muted">账号：{user.username}</p>
-      <p className="text-xs text-muted" role="status">{data.state === 'saving' ? '正在保存到账号…' : data.state === 'loading' ? '正在读取账号数据…' : data.state === 'error' ? '账号数据操作失败，请检查网络' : '个人数据保存在服务器'}</p>
-      <button className="btn-ghost w-full text-sm" disabled={data.state === 'loading' || data.state === 'saving'} onClick={() => void refreshAccountData()}>刷新账号数据</button>
+      <p className="text-xs text-muted" role="status">{data.state === 'error' ? '暂时无法同步，已有内容可继续使用' : '个人数据与账号同步'}</p>
+      <button className="btn-ghost w-full text-sm" onClick={() => void refreshAccountData(true)}>刷新账号数据</button>
       <button className="btn-ghost w-full text-sm" onClick={() => { setEditing(!editing); setMessage(''); setCurrentPassword(''); setNewPassword(''); }}>修改密码</button>
       {editing && <form className="space-y-3" onSubmit={(event) => {
         event.preventDefault(); setBusy(true); setMessage('');

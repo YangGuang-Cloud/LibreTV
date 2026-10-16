@@ -37,7 +37,7 @@ import { cn } from '@/lib/utils';
 /**
  * 播放页（唯一入口，替代旧版 watch.html → player.html 跳转链）。
  * 状态全部由 URL 驱动：/watch?source=xx&id=..&index=..&title=..
- * 集数列表由服务端详情接口获取；进度与历史走 IndexedDB。
+ * 集数列表由服务端详情接口获取；进度与历史通过会话内数据管理器同步。
  */
 export default function WatchPage() {
   return (

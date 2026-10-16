@@ -11,7 +11,7 @@ import { stopAccountData, waitForAccountWrites } from '@/lib/account-data';
 /**
  * 认证上下文：
  * - 页面加载时查询 /api/status 判断会话有效性；
- * - 任何 API 返回 401/503 时全局打开登录框（客户端 API 层统一触发，不再散落检查）。
+ * - 任何 API 返回 401 时全局打开登录框（客户端 API 层统一触发，不再散落检查）。
  */
 
 type SetupRequired = boolean;

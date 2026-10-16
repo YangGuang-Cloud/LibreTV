@@ -6,7 +6,7 @@ import { refreshAccountData } from '@/lib/account-data';
 import Link from 'next/link';
 import { Drawer } from './drawer';
 import { ConfirmDialog } from './confirm-dialog';
-import { EmptyState, LoadingState } from './states';
+import { EmptyState } from './states';
 import { Icon } from './icon';
 import { SmartImage } from './smart-image';
 import {
@@ -21,7 +21,7 @@ import { useToast } from './toast';
 import { resolveSource, useAppStore } from '@/lib/store';
 
 /**
- * 观看历史面板（服务器确认后的内存数据）。
+ * 观看历史面板（统一账号数据视图，操作立即生效）。
  * 与旧版的区别：播放前按需重新拉取剧集详情，不再依赖历史记录里冗余存储的全集 URL。
  * 破坏性操作分级：清空全部走确认弹窗，删除单条支持撤销。
  */
@@ -31,7 +31,7 @@ const VISIBLE_LIMIT = 50;
 
 export function HistoryPanel({ open, onClose }: { open: boolean; onClose: () => void }) {
   // 全量读取（上限即 DB 淘汰上限）：默认只渲染最近若干条，搜索时覆盖更早的记录
-  const history = useQuery({ queryKey: ['viewingHistory'], queryFn: getHistory }).data;
+  const history = useQuery({ queryKey: ['viewingHistory'], queryFn: getHistory, initialData: getHistory }).data;
   useEffect(() => { if (open) void refreshAccountData(); }, [open]);
   const { toast } = useToast();
   const [confirmClear, setConfirmClear] = useState(false);
@@ -95,9 +95,7 @@ export function HistoryPanel({ open, onClose }: { open: boolean; onClose: () => 
         ) : undefined
       }
     >
-      {!history ? (
-        <LoadingState />
-      ) : total === 0 ? (
+      {total === 0 ? (
         <EmptyState variant="plain" title="暂无观看记录" />
       ) : visible.length === 0 ? (
         <EmptyState variant="plain" title={`没有匹配「${query.trim()}」的观看记录`} />

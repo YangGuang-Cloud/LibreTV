@@ -60,4 +60,12 @@ describe('网页直接保存个人数据', () => {
     expect(getHistory()).toEqual([]);
     offline = false; await refreshAccountData(); expect(getHistory()).toEqual([]);
   });
+  it('后台读取失败保留已显示内容', async () => {
+    await startAccountData('account', undefined, transport);
+    await upsertHistory({ sourceKey: 's', vodId: 'x', title: '已有记录', episodeIndex: 0, totalEpisodes: 1, playbackPosition: 5, duration: 500, timestamp: Date.now() });
+    offline = true;
+    expect(await refreshAccountData(true)).toBe(false);
+    expect(getHistory().map((row) => row.title)).toEqual(['已有记录']);
+  });
+
 });

@@ -8,7 +8,7 @@ import type { LiveProbeEntry } from './store';
 import { isObject } from './sync-model';
 export const PERSIST_KEY = 'libretv-settings'; // 只用于手动导入/导出的文件格式
 
-/** IndexedDB 只保存视频缓存、下载任务和测速结果；个人数据直接读写账号数据库。 */
+/** IndexedDB 只保存设备缓存；个人数据由会话内管理器展示并通过接口同步。 */
 
 export interface HistoryEntry {
   /** 主键：`${sourceKey}_${vodId}` */
@@ -124,7 +124,7 @@ export function getSearchHistory(): SearchHistoryEntry[] {
 }
 export async function getProgress(key: string): Promise<ProgressEntry | undefined> {
   const client = accountClient();
-  await client.refresh();
+  void client.refresh(false).catch(() => {});
   return client.get<ProgressEntry>('progress', key);
 }
 export async function upsertHistory(entry: Omit<HistoryEntry, 'id'>): Promise<void> {
@@ -150,7 +150,7 @@ export async function removeHistory(sourceKey: string, vodId: string): Promise<v
   await accountClient().write([{ collection: 'history', key: `${sourceKey}_${vodId}`, value: null }]);
 }
 export async function clearAllHistory(): Promise<void> {
-  await accountClient().write((client) => client.rows().filter((row) => ['history', 'progress'].includes(row.collection) && row.value !== null).map((row) => ({ collection: row.collection, key: row.key, value: null })));
+  await accountClient().clear(['history', 'progress']);
 }
 export function progressKeyOf(sourceKey: string, vodId: string, episodeIndex: number): string { return `${sourceKey}_${vodId}_${episodeIndex}`; }
 export async function saveProgress(sourceKey: string, vodId: string, episodeIndex: number, position: number, duration: number): Promise<void> {

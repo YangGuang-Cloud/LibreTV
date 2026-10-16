@@ -10,7 +10,7 @@ import { useAppStore, hydrateLiveProbeResults } from '@/lib/store';
 import { api, STATUS_QUERY_KEY } from '@/lib/client-api';
 import { applyEnvPresets } from '@/lib/subscription-sync';
 import { usePathname } from 'next/navigation';
-import { setClientDataScope, clearObsoletePersonalStorage } from '@/lib/db';
+import { setClientDataScope, clearObsoletePersonalStorage, getHistory, getSearchHistory } from '@/lib/db';
 import type { AuthStatusResponse } from '@/lib/types';
 import { startAccountData, stopAccountData } from '@/lib/account-data';
 import { AccountDataNotice } from './account-data-notice';
@@ -48,8 +48,8 @@ function ViewerProviders({ children }: { children: ReactNode }) {
       if (cancelled) return;
       if (status.authMode === 'account' && status.user) {
         await startAccountData(status.user.id, () => {
-          void queryClient.invalidateQueries({ queryKey: ['searchHistory'] });
-          void queryClient.invalidateQueries({ queryKey: ['viewingHistory'] });
+          queryClient.setQueryData(['searchHistory'], getSearchHistory());
+          queryClient.setQueryData(['viewingHistory'], getHistory());
         });
       }
       if (cancelled) return;

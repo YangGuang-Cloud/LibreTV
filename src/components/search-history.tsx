@@ -25,6 +25,7 @@ export function useSearchHistory(input: string) {
   const history = useQuery({
     queryKey: ['searchHistory'],
     queryFn: () => getSearchHistory().slice(0, HISTORY_LIMIT),
+    initialData: () => getSearchHistory().slice(0, HISTORY_LIMIT),
   });
 
   const matches = useMemo(() => {

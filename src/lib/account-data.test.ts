@@ -41,14 +41,17 @@ describe('网页直接保存个人数据', () => {
     expect(useAppStore.getState().liveFavorites).toEqual(['https://example.com/live']);
     expect(storageRead).not.toHaveBeenCalled(); expect(storageWrite).not.toHaveBeenCalled();
   });
-  it('手动配置文件导入直接写账号，清空历史同时删除服务器进度', async () => {
+  it('手动配置文件导入直接写账号，清空历史同时隐藏服务器进度', async () => {
     await startAccountData('account', undefined, transport);
     await importConfig(JSON.stringify({ name: 'LibreTV-Settings', data: { [PERSIST_KEY]: JSON.stringify({ state: { adFilter: false } }), viewingHistory: JSON.stringify([{ id: 's_file', sourceKey: 's', vodId: 'file', title: '测试', episodeIndex: 0, totalEpisodes: 1, playbackPosition: 55, duration: 500, timestamp: Date.now() }]) } }));
     await saveProgress('s', 'file', 0, 55, 500);
     expect(useAppStore.getState().adFilter).toBe(false); expect(getHistory()).toHaveLength(1);
     const backup = JSON.parse(await exportConfig()); expect(JSON.parse(backup.data.playbackProgress)).toHaveLength(1);
     await clearAllHistory(); expect(getHistory()).toEqual([]);
-    expect(server.prepare("SELECT key FROM user_sync_data WHERE collection IN ('history', 'progress') AND value IS NOT NULL").all()).toEqual([]);
+    expect(server.prepare("SELECT key FROM user_sync_data WHERE collection IN ('history', 'progress') AND deleted = 0").all()).toEqual([]);
+    const retained = server.prepare("SELECT value, deleted FROM user_sync_data WHERE collection IN ('history', 'progress')").all() as { value: string | null; deleted: number }[];
+    expect(retained).toHaveLength(2);
+    expect(retained.every((row) => row.deleted === 1 && row.value !== null)).toBe(true);
     expect(storageWrite).not.toHaveBeenCalled();
   });
   it('历史写入失败不在页面生成一条看似已保存的记录', async () => {

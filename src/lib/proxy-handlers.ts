@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { guardRequest, jsonError } from '@/lib/api-guard';
 import { checkLiveUrlAllowed, isBlockedByDNS, isValidProxyUrl } from '@/lib/ssrf';
 import { fetchWithSafeRedirects } from '@/lib/fetch-utils';
-import { rewriteM3u8, LIVE_STREAM_BASE } from '@/lib/m3u8';
+import { rewriteM3u8, stripAdGroups, LIVE_STREAM_BASE } from '@/lib/m3u8';
 import { signMediaURL, verifyMediaURL } from '@/lib/auth';
 
 /**
@@ -131,9 +131,11 @@ export async function handleProxyRequest(req: Request, targetUrl: string): Promi
     let text: string;
     try { text = await response.text(); }
     catch { return jsonError('上游播放列表读取失败', 502); }
-    const mediaURL = mediaAuthorized ? (target: string) =>
-      `/api/proxy?url=${encodeURIComponent(target)}&mediaExpires=${expires}&mediaSignature=${signMediaURL(target, Number(expires))}` : undefined;
-    return new NextResponse(rewriteM3u8(text, finalUrl, 0, undefined, mediaURL), {
+    // Native players cannot run the web HLS loader; filter opted-in playlists here.
+    const adFilter = params.get('adFilter') === '1';
+    const mediaURL = mediaAuthorized || adFilter ? (target: string) =>
+      `/api/proxy?url=${encodeURIComponent(target)}${mediaAuthorized ? `&mediaExpires=${expires}&mediaSignature=${signMediaURL(target, Number(expires))}` : ''}${adFilter ? '&adFilter=1' : ''}` : undefined;
+    return new NextResponse(rewriteM3u8(adFilter ? stripAdGroups(text) : text, finalUrl, 0, undefined, mediaURL), {
       status: response.status,
       headers: {
         'Content-Type': 'application/vnd.apple.mpegurl',

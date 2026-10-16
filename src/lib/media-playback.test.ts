@@ -50,3 +50,44 @@ it('allows cookie-free receiver playback and signs nested playlists, audio, keys
     expect((await handleProxyRequest(new Request(url), 'https://8.8.8.8/other')).status).toBe(401);
   }
 });
+
+it('issues an opted-in native ad-filter link and rejects invalid filter values', async () => {
+  const headers = { cookie: `${SESSION_COOKIE}=${signSession().token}` };
+  const request = (adFilter: unknown) => new Request('https://local.test/api/playback', { method: 'POST', headers, body: JSON.stringify({ url: target, adFilter }) });
+  expect((await POST(request('true'))).status).toBe(400);
+  const data = await (await POST(request(true))).json();
+  expect(data.adFilter).toBe(true);
+  const link = new URL(data.path, 'https://local.test');
+  expect(link.searchParams.get('adFilter')).toBe('1');
+  expect(verifyMediaURL(target, link.searchParams.get('mediaExpires'), link.searchParams.get('mediaSignature'))).toBe(true);
+  const disabled = await (await POST(request(false))).json();
+  expect(disabled.adFilter).toBe(false);
+  expect(new URL(disabled.path, 'https://local.test').searchParams.has('adFilter')).toBe(false);
+});
+
+it('keeps native filtering on nested playlists and preserves signed receiver playback', async () => {
+  const expiry = Date.now() + 60000;
+  const signed = (url: string, filter: boolean) => `https://local.test/api/proxy?url=${encodeURIComponent(url)}&mediaExpires=${expiry}&mediaSignature=${signMediaURL(url, expiry)}${filter ? '&adFilter=1' : ''}`;
+  vi.mocked(fetchWithSafeRedirects).mockResolvedValue({ res: new Response('#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=800000\nvariant.m3u8', { headers: { 'content-type': 'application/vnd.apple.mpegurl' } }), finalUrl: target });
+  const master = await (await handleProxyRequest(new Request(signed(target, true)), target)).text();
+  const childPath = master.split('\n').find((line) => line.startsWith('/api/proxy'))!;
+  const child = new URL(childPath, 'https://local.test');
+  expect(child.searchParams.get('adFilter')).toBe('1');
+  const childTarget = child.searchParams.get('url')!;
+  expect(verifyMediaURL(childTarget, child.searchParams.get('mediaExpires'), child.searchParams.get('mediaSignature'))).toBe(true);
+  const playlist = '#EXTM3U\n#EXTINF:10,\nreal-a.ts\n#EXT-X-DISCONTINUITY\n#EXTINF:3,\n/video/adjump/time/ad.ts\n#EXT-X-DISCONTINUITY\n#EXTINF:10,\nreal-b.ts\n#EXT-X-ENDLIST';
+  const upstream = () => ({ res: new Response(playlist, { headers: { 'content-type': 'application/vnd.apple.mpegurl' } }), finalUrl: childTarget });
+  vi.mocked(fetchWithSafeRedirects).mockResolvedValue(upstream());
+  const filtered = await (await handleProxyRequest(new Request(child), childTarget)).text();
+  expect(filtered).not.toContain('adjump');
+  expect(filtered).toContain('real-a.ts'); expect(filtered).toContain('real-b.ts');
+  for (const path of filtered.match(/\/api\/proxy\?[^"\n]+/g)!) {
+    const segment = new URL(path, 'https://local.test');
+    expect(segment.searchParams.get('adFilter')).toBe('1');
+    expect(verifyMediaURL(segment.searchParams.get('url')!, String(expiry), segment.searchParams.get('mediaSignature'))).toBe(true);
+  }
+  vi.mocked(fetchWithSafeRedirects).mockResolvedValue(upstream());
+  const unfiltered = await (await handleProxyRequest(new Request(signed(childTarget, false)), childTarget)).text();
+  expect(unfiltered).toContain('adjump');
+  expect((await handleProxyRequest(new Request(`https://local.test/api/proxy?adFilter=1`), childTarget)).status).toBe(401);
+});

@@ -1,7 +1,7 @@
 /** 服务端上游请求工具：超时、重试、安全跳转、JSON 解析 */
 
 import { allowLivePrivate, checkLiveUrlAllowed, checkUpstreamAllowed } from './ssrf';
-import { upstreamDispatcher } from './upstream-dispatcher';
+import { upstreamRequest } from './upstream-dispatcher';
 
 export interface FetchOptions extends RequestInit {
   timeoutMs?: number;
@@ -65,16 +65,17 @@ export async function fetchWithSafeRedirects(
       ? await checkLiveUrlAllowed(current)
       : await checkUpstreamAllowed(current);
     if (!verdict.ok) {
-      throw new Error(`跳转目标被拒绝: ${verdict.reason}`);
+      throw new Error(`${hop === 0 ? '上游目标被拒绝' : '跳转目标被拒绝'}: ${verdict.reason}`);
     }
     const timer = headerTimeoutMs ? setTimeout(() => controller.abort(), headerTimeoutMs) : null;
     let res: Response;
     try {
+      const route = await upstreamRequest(current, allowPrivate && allowLivePrivate());
       const fetchInit = {
         ...init, signal: controller.signal, redirect: 'manual' as const,
-        dispatcher: upstreamDispatcher(allowPrivate && allowLivePrivate()),
+        dispatcher: route.dispatcher,
       };
-      res = await fetch(current, fetchInit);
+      res = await fetch(route.url, fetchInit);
     } finally {
       if (timer) clearTimeout(timer);
     }
@@ -105,9 +106,10 @@ export async function fetchUpstreamWithMeta(url: string, options: FetchOptions =
         // 即使关闭跳转跟随，也不能关闭出网地址和连接层校验。
         const verdict = allowPrivate ? await checkLiveUrlAllowed(url) : await checkUpstreamAllowed(url);
         if (!verdict.ok) throw new Error(verdict.reason);
-        const res = await fetch(url, {
+        const route = await upstreamRequest(url, allowPrivate && allowLivePrivate());
+        const res = await fetch(route.url, {
           ...init, signal, redirect: 'manual',
-          ...{ dispatcher: upstreamDispatcher(allowPrivate && allowLivePrivate()) },
+          ...{ dispatcher: route.dispatcher },
         });
         return { res, finalUrl: url };
       }

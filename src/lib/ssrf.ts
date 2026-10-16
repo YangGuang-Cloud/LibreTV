@@ -1,5 +1,5 @@
-import dns from 'node:dns/promises';
 import { isIP } from 'node:net';
+import { lookupUpstreamHost } from './bangumi-egress';
 
 /** 去掉 URL.hostname 对 IPv6 附加的方括号（"[::1]" → "::1"） */
 function stripBrackets(host: string): string {
@@ -74,7 +74,7 @@ export async function isBlockedByDNS(urlString: string): Promise<boolean> {
     if (/^\d{1,3}(\.\d{1,3}){3}$/.test(hostname) || hostname.includes(':')) {
       return isPrivateIP(hostname);
     }
-    const result = await dns.lookup(hostname, { all: true });
+    const result = await lookupUpstreamHost(hostname);
     return result.length === 0 || result.some((r) => isPrivateIP(r.address));
   } catch {
     return true; // 无法确定地址安全时拒绝出网

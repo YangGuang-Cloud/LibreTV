@@ -61,6 +61,14 @@
 - 自检只验证应用启动、提交编号及密码配置，不替代真机投屏或实际视频源播放测试。
 - 此流程只更新服务器和网页。iOS 客户端仍需 Xcode 编译安装。
 
+## Bangumi 专用出站
+
+- 阿里云的 `libretv-egress.service` 运行官方 Xray 26.10.10，使用搬瓦工现有直连节点上的独立 `libretv-bangumi` 账号；不改变系统默认路由。HTTP 代理仅监听 `127.0.0.1:18089` 并启用认证，DNS 转发仅监听 `127.0.0.1:18053`，解析经同一 VPN 到公共解析器。
+- 二进制位于 `/opt/libretv/egress/xray`；节点配置在 `/etc/libretv/egress/xray.json`（root/专用服务组可读），应用凭据在 `/etc/libretv/bangumi-egress.env`（root 可读）。这些文件不进 Git、不进应用发布包。应用的 systemd drop-in 加载后者，常规自动部署会保留它。
+- 两个环境变量为 `BANGUMI_HTTP_PROXY` 和 `BANGUMI_DNS_SERVER`，只接受本机地址，必须一起配置。未配置时继续使用原直连逻辑；配置错误明确失败。
+- 只有 `https://api.bgm.tv/calendar` 和 `https://lain.bgm.tv/` 下的封面路径使用此出站；旧 HTTP 封面在日历归一化时转成 HTTPS。其他站点不走代理。每次跳转重新检查，DNS 结果仍须全部为公网地址；CONNECT 固定已校验的 IP，同时保留原始 Host、TLS SNI 和证书校验，避免域名二次解析绕过检查。
+- 运行状态用 `systemctl status libretv-egress` 查看。账号流量可在 3x-ui 的 `libretv-bangumi` 客户端下单独查看。停用时移除应用的出站环境 drop-in，重启 `libretv` 后再停止独立出站服务；这会恢复直连，不保证 Bangumi 在当前网络可用。
+
 ## 本地验证
 
 ```bash

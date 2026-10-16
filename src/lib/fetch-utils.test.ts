@@ -23,6 +23,12 @@ afterEach(() => {
 });
 
 describe('fetchUpstream 安全跳转', () => {
+  it('首跳不允许访问时拒绝请求，且不误报为重定向失败', async () => {
+    const spy = mockFetch([]);
+    await expect(fetchUpstream('http://127.0.0.1/calendar')).rejects.toThrow(/^上游目标被拒绝:/);
+    expect(spy.mock.calls.length).toBe(0);
+  });
+
   it('302 跳转到内网地址时拒绝，且不发起第二跳请求', async () => {
     const spy = mockFetch([
       () => new Response(null, { status: 302, headers: { location: 'http://127.0.0.1:8080/secret' } }),

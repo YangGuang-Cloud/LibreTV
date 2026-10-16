@@ -15,8 +15,9 @@ export async function GET(req: Request) {
       days: Object.entries(days).map(([weekday, items]) => ({ weekday: Number(weekday), items })),
     });
   } catch (err) {
+    console.warn('[bangumi/calendar] 上游请求失败:', err instanceof Error ? err.message : '未知错误');
     return NextResponse.json(
-      { error: err instanceof Error ? err.message : '新番放送表获取失败' },
+      { error: '暂时无法连接新番来源，请稍后重试或切换其他推荐来源。' },
       { status: 502 }
     );
   }

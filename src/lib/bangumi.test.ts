@@ -11,6 +11,11 @@ describe('normalizeWeekday', () => {
 });
 
 describe('subjectToItem', () => {
+  it('将官方封面的旧 HTTP 地址转换为 HTTPS，避免首跳绕过专用出站', () => {
+    expect(subjectToItem({ id: 1, name: '新番', images: { large: 'http://lain.bgm.tv/pic/cover/l/a.jpg' } })?.cover)
+      .toBe('https://lain.bgm.tv/pic/cover/l/a.jpg');
+  });
+
   it('优先中文名、评分保留一位小数', () => {
     const item = subjectToItem({
       id: 123,

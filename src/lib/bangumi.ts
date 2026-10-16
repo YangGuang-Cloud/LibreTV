@@ -33,7 +33,9 @@ interface BangumiCalendarDay {
 /** 单条 subject → DoubanItem；缺标题或封面的条目视为脏数据丢弃 */
 export function subjectToItem(subject: BangumiSubject): DoubanItem | undefined {
   const title = subject.name_cn || subject.name;
-  const cover = subject.images?.large || subject.images?.common || subject.images?.medium;
+  const rawCover = subject.images?.large || subject.images?.common || subject.images?.medium;
+  // The legacy API still publishes HTTP covers; use the CDN's verified HTTPS endpoint directly.
+  const cover = rawCover?.replace(/^http:\/\/lain\.bgm\.tv\//i, 'https://lain.bgm.tv/');
   if (!subject.id || !title || !cover) return undefined;
   const score = subject.rating?.score ?? 0;
   return {
@@ -63,7 +65,7 @@ export async function fetchBangumiCalendar(): Promise<Record<number, DoubanItem[
   if (cached) return cached;
 
   const res = await fetchUpstream(BANGUMI_API, {
-    timeoutMs: 8000,
+    timeoutMs: 12000,
     headers: { 'User-Agent': UA, Accept: 'application/json' },
   });
   if (!res.ok) throw new Error(`Bangumi 接口响应异常 (${res.status})`);

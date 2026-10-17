@@ -1,8 +1,9 @@
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { GET as listUsers, POST as createUser, PATCH as updateUser } from '@/app/api/admin/users/route';
+import { POST as revealPassword } from '@/app/api/admin/users/password/route';
 import { POST as login, DELETE as logout } from '@/app/api/auth/route';
 import { GET as status } from '@/app/api/status/route';
 import { POST as frameworkEndpoint } from '@/app/api/auth/[...account]/route';
@@ -33,6 +34,7 @@ beforeAll(async () => {
   vi.stubEnv('SERVER_DATA_DIR', directory); vi.stubEnv('ADMIN_PASSWORD', 'admin-password'); vi.stubEnv('PASSWORD', 'legacy-password');
   adminCookie = `${ADMIN_SESSION_COOKIE}=${signAdminSession().token}`;
 });
+beforeEach(() => { adminCookie = `${ADMIN_SESSION_COOKIE}=${signAdminSession().token}`; });
 afterAll(async () => {
   const state = await getAccountAuth();
   state.database.close();
@@ -54,13 +56,21 @@ describe.sequential('真实 SQLite 账号闭环', () => {
     }
     expect((await createUser(request('/api/admin/users', 'POST', { username: 'friend', password }, adminCookie, 'https://other.example'))).status).toBe(403);
   });
-  it('管理员可以创建账号，密码只以哈希存储，重复账号被拒绝', async () => {
+  it('管理员创建账号保留登录哈希与加密副本，重复账号被拒绝', async () => {
     const created = await createUser(request('/api/admin/users', 'POST', { username: 'Friend', name: '亲友', password }, adminCookie));
     expect(created.status).toBe(200);
     const { database } = await getAccountAuth();
     const credential = database.prepare('SELECT password FROM account').get() as { password: string };
     expect(credential.password).not.toBe(password);
     expect(credential.password.length).toBeGreaterThan(64);
+    const encrypted = database.prepare('SELECT * FROM managed_password').get();
+    expect(JSON.stringify(encrypted)).not.toContain(password);
+    expect((await fs.stat(path.join(directory, '.account-password.key'))).mode & 0o777).toBe(0o600);
+    const revealed = await revealPassword(request('/api/admin/users/password', 'POST', { userId: (encrypted as { userId: string }).userId }, adminCookie));
+    expect(revealed.status).toBe(200);
+    expect(revealed.headers.get('cache-control')).toContain('no-store');
+    expect(revealed.headers.get('pragma')).toBe('no-cache');
+    expect((await revealed.json()).password).toBe(password);
     expect((await fs.stat(path.join(directory, 'accounts.sqlite'))).mode & 0o777).toBe(0o600);
     expect((await createUser(request('/api/admin/users', 'POST', { username: 'friend', password }, adminCookie))).status).toBe(409);
   });
@@ -75,6 +85,7 @@ describe.sequential('真实 SQLite 账号闭环', () => {
     expect(state).toMatchObject({ authMode: 'account', verified: true, user: { username: 'friend', name: '亲友' } });
     expect(await guardRequest(request('/api/search', 'GET', undefined, cookie))).toBeNull();
     expect((await listUsers(request('/api/admin/users', 'GET', undefined, cookie))).status).toBe(401);
+    expect((await revealPassword(request('/api/admin/users/password', 'POST', { userId: state.user.id }, cookie))).status).toBe(401);
   });
   it('停用立即撤销会话且不能重新登录，启用后恢复登录', async () => {
     const cookie = cookies(await signIn());
@@ -99,6 +110,11 @@ describe.sequential('真实 SQLite 账号闭环', () => {
     expect(await guardRequest(request('/api/search', 'GET', undefined, newCookie))).toBeNull();
     const changed = await frameworkEndpoint(request('/api/auth/change-password', 'POST', { currentPassword: nextPassword, newPassword: 'Changed-password-12345', revokeOtherSessions: true }, newCookie));
     expect(changed.status).toBe(200);
+    const shown = await revealPassword(request('/api/admin/users/password', 'POST', { userId }, adminCookie));
+    expect((await shown.json()).password).toBe('Changed-password-12345');
+    const listed = await (await listUsers(request('/api/admin/users', 'GET', undefined, adminCookie))).json();
+    expect(listed.users.find((user: { id: string }) => user.id === userId).passwordAvailable).toBe(true);
+    expect(JSON.stringify(listed)).not.toContain('Changed-password-12345');
   });
   it('退出会撤销服务端会话，重放旧 cookie 无效', async () => {
     const cookie = cookies(await signIn('friend', 'Changed-password-12345'));
@@ -144,4 +160,37 @@ describe.sequential('真实 SQLite 账号闭环', () => {
     }
     expect(limited).toBe(true);
   });
+  it('查看密码拒绝匿名、旧会话、跨站和非 JSON 请求，不泄露密码', async () => {
+    const { database } = await getAccountAuth();
+    const { id: userId } = database.prepare('SELECT id FROM user LIMIT 1').get() as { id: string };
+    const body = { userId };
+    expect((await revealPassword(request('/api/admin/users/password', 'POST', body))).status).toBe(401);
+    expect((await revealPassword(request('/api/admin/users/password', 'POST', body, `${SESSION_COOKIE}=${signSession().token}`))).status).toBe(401);
+    expect((await revealPassword(request('/api/admin/users/password', 'POST', body, adminCookie, 'https://other.example'))).status).toBe(403);
+    const wrongType = request('/api/admin/users/password', 'POST', body, adminCookie);
+    wrongType.headers.set('content-type', 'text/plain');
+    expect((await revealPassword(wrongType)).status).toBe(415);
+    const crossSite = request('/api/admin/users/password', 'POST', body, adminCookie);
+    crossSite.headers.set('sec-fetch-site', 'cross-site');
+    expect((await revealPassword(crossSite)).status).toBe(403);
+    expect((await revealPassword(request('/api/admin/users/password', 'POST', {}, adminCookie))).status).toBe(400);
+    expect((await revealPassword(request('/api/admin/users/password', 'POST', { userId: 'missing' }, adminCookie))).status).toBe(404);
+  });
+  it('旧账号不推断原密码；重置后可查看；加密记录写入失败时重置完整回滚', async () => {
+    const { auth, database } = await getAccountAuth();
+    const legacy = await auth.api.createUser({ body: { email: 'legacy@accounts.invalid', password: 'legacy-password', name: '旧账号', role: 'user', data: { username: 'legacy', displayUsername: 'legacy' } } });
+    const userId = legacy.user.id;
+    const list = await (await listUsers(request('/api/admin/users', 'GET', undefined, adminCookie))).json();
+    expect(list.users.find((user: { id: string }) => user.id === userId).passwordAvailable).toBe(false);
+    expect((await revealPassword(request('/api/admin/users/password', 'POST', { userId }, adminCookie))).status).toBe(409);
+    const reset = (value: string) => updateUser(request('/api/admin/users', 'PATCH', { userId, action: 'reset-password', password: value }, adminCookie));
+    expect((await reset('reset-visible-password')).status).toBe(200);
+    const oldHash = (database.prepare('SELECT password FROM account WHERE userId=?').get(userId) as { password: string }).password;
+    database.exec("CREATE TRIGGER fail_vault BEFORE INSERT ON managed_password BEGIN SELECT RAISE(ABORT, 'test write failure'); END");
+    try { expect((await reset('should-not-be-saved')).status).toBe(500); }
+    finally { database.exec('DROP TRIGGER fail_vault'); }
+    expect((database.prepare('SELECT password FROM account WHERE userId=?').get(userId) as { password: string }).password).toBe(oldHash);
+    expect((await (await revealPassword(request('/api/admin/users/password', 'POST', { userId }, adminCookie))).json()).password).toBe('reset-visible-password');
+  });
+
 });

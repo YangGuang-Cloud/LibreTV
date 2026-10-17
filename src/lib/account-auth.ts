@@ -5,6 +5,7 @@ import { betterAuth } from 'better-auth';
 import { getMigrations } from 'better-auth/db/migration';
 import { admin, username } from 'better-auth/plugins';
 import { accountConfigured } from './account-mode';
+import { initializePasswordVault, passwordVaultKey, captureManagedPassword } from './account-password-vault';
 import { initializeSyncSchema } from './sync-schema';
 
 function createAccountAuth() {
@@ -43,6 +44,7 @@ export function getAccountAuth(): Promise<AccountAuth> {
         const { runMigrations } = await getMigrations(state.auth.options);
         await runMigrations();
         initializeSyncSchema(state.database);
+        initializePasswordVault(state.database);
         return state;
       } catch (error) { state.database.close(); throw error; }
     })().catch((error) => { globalAccounts.lunaAccounts = undefined; throw error; });
@@ -69,6 +71,28 @@ export async function accountAuthHandler(req: Request): Promise<Response> {
     }
     if (!valid) return Response.json({ error: '请求来源无效' }, { status: 403 });
   }
-  const { auth } = await getAccountAuth();
-  return auth.handler(req);
+  const { auth, database } = await getAccountAuth();
+  let change: { userId: string; password: string; key: Buffer } | undefined;
+  if (req.method === 'POST' && new URL(req.url).pathname === '/api/auth/change-password') {
+    let body: { newPassword?: unknown } | undefined;
+    try {
+      const raw = await req.clone().text();
+      if (raw.length > 8192) return Response.json({ error: '请求过大' }, { status: 413 });
+      body = JSON.parse(raw);
+    } catch { /* 框架负责返回原有的请求格式错误 */ }
+    if (typeof body?.newPassword === 'string' && body.newPassword.length >= 6 && body.newPassword.length <= 128) {
+      const session = await getAccountSession(req.headers);
+      if (session) {
+        try { change = { userId: session.user.id, password: body.newPassword, key: passwordVaultKey(database, true) }; }
+        catch { return Response.json({ error: '密码加密存储不可用，请联系管理员检查密钥' }, { status: 503 }); }
+      }
+    }
+  }
+  const response = await auth.handler(req);
+  if (response.ok && change) {
+    // 更新失败时 hash 绑定仍会使旧副本不可查看；不将已完成的改密误报为失败。
+    try { await captureManagedPassword(database, change.key, change.userId, change.password); }
+    catch { /* 登录哈希已更新，管理员列表会标记为需重置后查看 */ }
+  }
+  return response;
 }

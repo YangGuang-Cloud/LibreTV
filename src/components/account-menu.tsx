@@ -32,6 +32,7 @@ export function AccountMenu() {
       }}>
         <label className="block text-sm">原密码<input type="password" required maxLength={128} autoComplete="current-password" className="input w-full mt-1" value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} /></label>
         <label className="block text-sm">新密码<input type="password" required minLength={6} maxLength={128} autoComplete="new-password" className="input w-full mt-1" placeholder="至少 6 位" value={newPassword} onChange={(event) => setNewPassword(event.target.value)} /></label>
+        <p className="text-xs text-muted">新设置的密码可由本站管理员查看。</p>
         <button className="btn-primary w-full" disabled={busy}>{busy ? '正在保存…' : '保存新密码'}</button>
       </form>}
       {message && <p role="status" className="text-sm text-muted">{message}</p>}

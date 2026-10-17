@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { AdminSourceManager } from './admin-source-manager';
 import { AdminEpisodeManager } from './admin-episode-manager';
@@ -20,7 +21,11 @@ export function AdminConsole() {
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  const [section, setSection] = useState<'sources' | 'episodes' | 'users' | 'recommendations'>('users');
+  const router = useRouter();
+  const params = useSearchParams();
+  const tab = params.get('tab');
+  const section = tab === 'sources' || tab === 'episodes' || tab === 'recommendations' ? tab : 'users';
+  const setSection = (next: string) => router.push(`/admin?tab=${next}`);
   const sessionExpired = useCallback(() => setStatus((current) => current ? { ...current, verified: false } : current), []);
 
   useEffect(() => {

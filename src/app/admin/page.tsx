@@ -1,3 +1,4 @@
+import { Suspense } from 'react';
 import type { Metadata } from 'next';
 import { AdminConsole } from '@/components/admin-console';
 
@@ -6,5 +7,5 @@ export const metadata: Metadata = {
 };
 
 export default function AdminPage() {
-  return <AdminConsole />;
+  return <Suspense fallback={<div className="p-8 text-sm text-muted">正在连接后台…</div>}><AdminConsole /></Suspense>;
 }

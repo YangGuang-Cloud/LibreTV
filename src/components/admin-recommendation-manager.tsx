@@ -107,10 +107,10 @@ export function AdminRecommendationManager({ onSessionExpired }: { onSessionExpi
                 <p className="mt-4 text-sm text-muted">{item.feeds?.length ?? 0} 个分类{groups.length ? ` · ${groups.join(' / ')}` : ''}</p>
                 <p className="mt-5 text-sm font-medium text-accent">进入编辑 <span aria-hidden>→</span></p>
               </button>
-              <div className="flex items-center justify-between gap-2 border-t border-line bg-chip/30 px-4 py-3">
+              <div className="flex flex-wrap items-center justify-between gap-2 border-t border-line bg-chip/30 px-4 py-3">
                 <div className="flex gap-1"><button className="btn-ghost !px-2 !py-1" aria-label={`上移${item.name}`} disabled={index === 0} onClick={() => moveSource(index, -1)}>↑</button><button className="btn-ghost !px-2 !py-1" aria-label={`下移${item.name}`} disabled={index === draft.sources.length - 1} onClick={() => moveSource(index, 1)}>↓</button></div>
                 <span className="text-xs text-warning">{sourceChanged(item, saved) ? '未保存' : ''}</span>
-                <label className="flex items-center gap-2 text-xs cursor-pointer"><input type="checkbox" aria-label={`启用${item.name}`} checked={item.enabled} onChange={(event) => changeSource({ ...item, enabled: event.target.checked })} />启用</label>
+                <div className="flex flex-wrap items-center gap-3 text-xs"><label className="flex items-center gap-1.5 cursor-pointer"><input type="checkbox" aria-label={`启用${item.name}`} checked={item.enabled} onChange={(event) => changeSource({ ...item, enabled: event.target.checked })} />启用来源</label><label className={`flex items-center gap-1.5 ${item.enabled ? 'cursor-pointer' : 'text-muted'}`}><input type="radio" name="default-recommendation" aria-label={`将${item.name}设为默认`} checked={draft.defaultSource === item.id} disabled={!item.enabled} onChange={() => setDefault(item.id)} />设为默认</label></div>
               </div>
             </article>;
           })}
@@ -118,8 +118,8 @@ export function AdminRecommendationManager({ onSessionExpired }: { onSessionExpi
         {!draft.sources.length && <div className="card border border-dashed border-line py-14 text-center"><p className="font-medium">还没有推荐来源</p><p className="text-sm text-muted mt-2">添加一个来源，或从下方的预置开始。</p></div>}
         {!!available.length && <details className="rounded-xl border border-dashed border-line p-4"><summary className="text-sm text-muted cursor-pointer">从预置添加来源</summary><div className="flex flex-wrap gap-2 mt-3">{available.map((item) => <button key={item.id} className="btn-ghost text-sm" disabled={draft.sources.length >= 30} onClick={() => addSource(item)}>＋ {item.name}</button>)}</div></details>}
         {!draft.sources.some((item) => item.enabled) && <p className="text-sm text-muted">当前没有启用的来源，保存后观看端将隐藏首页推荐。</p>}
-      </> : source ? <SourceEditor key={`${source.id}:${editorVersion}`} source={source} isDefault={draft.defaultSource === source.id}
-        onChange={changeSource} onSetDefault={() => setDefault(source.id)} onSessionExpired={onSessionExpired}
+      </> : source ? <SourceEditor key={`${source.id}:${editorVersion}`} source={source}
+        onChange={changeSource} onSessionExpired={onSessionExpired}
         confirm={setConfirmation} onRemove={() => setConfirmation({ title: `移除 ${source.name}？`, message: '该来源及其分类将从列表移除，保存后对观看端生效。保存前仍可撤销改动。', action: () => { changeSources(draft.sources.filter((item) => item.id !== source.id)); navigate(); } })} />
         : <div className="card p-8 text-center space-y-4"><p className="text-muted">该来源已被移除，或当前配置中不存在。</p><button className="btn-ghost" onClick={() => navigate()}>返回来源列表</button></div>}
       <div className="sticky bottom-3 z-20 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-line bg-surface/95 p-3 sm:px-5 shadow-lg backdrop-blur">
@@ -131,9 +131,9 @@ export function AdminRecommendationManager({ onSessionExpired }: { onSessionExpi
   </section>;
 }
 
-function SourceEditor({ source, isDefault, onChange, onSetDefault, onRemove, onSessionExpired, confirm }: {
-  source: RecommendationSource; isDefault: boolean; onChange: (source: RecommendationSource) => void;
-  onSetDefault: () => void; onRemove: () => void; onSessionExpired: () => void; confirm: (value: Confirmation) => void;
+function SourceEditor({ source, onChange, onRemove, onSessionExpired, confirm }: {
+  source: RecommendationSource; onChange: (source: RecommendationSource) => void;
+  onRemove: () => void; onSessionExpired: () => void; confirm: (value: Confirmation) => void;
 }) {
   const feeds = source.feeds ?? [];
   const groups = [...new Set(feeds.map((feed) => feed.group || ''))];
@@ -161,9 +161,8 @@ function SourceEditor({ source, isDefault, onChange, onSetDefault, onRemove, onS
     [updated[a], updated[b]] = [updated[b], updated[a]]; onChange({ ...source, feeds: updated });
   };
   return <>
-    <div className="card border border-line p-5 sm:p-6 grid gap-5 sm:grid-cols-[1fr_auto] items-end">
+    <div className="card border border-line p-5 sm:p-6">
       <label className="block text-sm font-medium">来源名称<input className="input w-full mt-2" maxLength={50} value={source.name} onChange={(event) => onChange({ ...source, name: event.target.value })} /></label>
-      <div className="flex flex-wrap items-center gap-4 pb-2 text-sm"><label className="flex items-center gap-2"><input type="checkbox" checked={source.enabled} onChange={(event) => onChange({ ...source, enabled: event.target.checked })} />启用来源</label><label className="flex items-center gap-2"><input type="radio" name="default-recommendation" checked={isDefault} disabled={!source.enabled} onChange={onSetDefault} />设为默认</label></div>
     </div>
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3"><div><h3 className="text-lg font-semibold">分类管理 <span className="ml-2 text-sm text-muted font-normal">{feeds.length} 个分类</span></h3><p className="text-sm text-muted mt-1">按分组浏览，展开一个分类即可编辑。</p></div><button className="btn-ghost text-sm" disabled={feeds.length >= 50} onClick={() => addFeed('')}>＋ 添加分类</button></div>

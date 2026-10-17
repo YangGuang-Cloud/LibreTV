@@ -16,7 +16,7 @@ export interface AppSettings {
   adFilter: boolean;
   doubanEnabled: boolean;
   /** 首页推荐数据源：豆瓣热门 / Bangumi 每日放送（免 key）/ 影视热榜（60s API） */
-  recommendSource: 'douban' | 'bangumi' | 'hot-list';
+  recommendSource: string;
   /** 用户是否在设置中主动选择过推荐数据源；为 false 时部署者的 DEFAULT_RECOMMEND_SOURCE 默认值可生效 */
   recommendSourceTouched: boolean;
   autoplayNext: boolean;
@@ -173,7 +173,7 @@ export interface SourceHealthEntry {
 }
 
 interface AppState extends AppSettings {
-  recommendationConfig: import('./recommendation-config').RecommendationConfig | null;
+  recommendationConfig: import('./recommendation-config').RecommendationSnapshot | null;
   /** 服务器模式下仅使用管理员下发的点播源，不持久化。 */
   serverSourceMode: boolean;
   /** 部署者通过 DEFAULT_SOURCES 环境变量预置的源（服务端下发，不持久化） */

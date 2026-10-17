@@ -138,11 +138,17 @@ DEFAULT_SOURCES=[{"name":"示例源","url":"https://example.com/api.php/provide/
 
 ### 后台首页推荐管理
 
-管理员在 `/admin` →「首页推荐」管理豆瓣热门、Bangumi 新番放送和影视热榜：可添加或移除已有类型、修改显示名称、调整顺序、启用或停用，并指定默认来源。关闭或移除全部来源后，观看端隐藏推荐。接入新类型的上游仍需开发对应适配，不支持粘贴任意接口作为推荐源，也不包含手动编辑推荐片单。
+所有推荐来源使用同一套可编辑配置，包括预置的豆瓣热门、Bangumi 新番放送、影视热榜。管理员在 `/admin` →「首页推荐」可添加、移除、改名、排序、启停，并设置默认来源。每个来源包含 1–50 个分类接口，可按电影、剧集等分组，逐个编辑接口地址、备用地址和字段映射，测试预览草稿后保存。最多 30 个来源；全部关闭后观看端隐藏推荐。
 
-配置保存在 `SERVER_DATA_DIR/recommendations.json`，不存在时以 `DEFAULT_RECOMMEND_SOURCE`（缺省为 `hot-list`）初始化；后台保存后不再受环境默认值覆盖。请随数据目录备份，适用于单实例部署。管理接口为 `/api/admin/recommendations`（GET / PUT），使用独立后台会话和版本号，冲突返回 409。
+接口使用公网 HTTP/HTTPS GET 并返回 JSON，无需修改客户端即可接入符合映射规则的新来源。普通 JSON 的示例为 `{"items":[{"id":"1","title":"影片名","cover":"https://example.com/poster.jpg","rating":"8.5"}]}`，对应列表 `items`、片名 `title`、海报 `cover`、编号 `id`、评分 `rating`。后台同时提供苹果 CMS 字段模板。
 
-观看网页通过 `/api/status`、iOS 通过 `/api/server/config` 读取 `recommendations: {sources: [{id,name,enabled}], defaultSource, revision}`，数组顺序为显示顺序。网页登录后每分钟同步，iOS 在前台按已有配置刷新周期同步；也可手动刷新。用户已有的可用来源偏好优先，偏好来源停用时临时回退默认项，重新启用后恢复原选择。旧服务器未下发该字段时，客户端保留内置选项。首次启用此功能需同时发布服务器与更新 iOS 应用，以后的上述配置调整无需重新安装。
+字段路径支持点号访问嵌套数据（`data.list`、`images.large`）、`*` 展开数组（Bangumi 用 `*.items.*`），以及 `|` 备用字段（`name_cn|name`）。列表路径留空表示顶层数组。片名和海报为必填字段；编号缺省时使用片名去重；评分可省略。支持图床提供 HTTPS 时勾选海报地址升级，Bangumi 预置已开启。可设置顶层分组筛选字段及值，例如 Bangumi 的 `weekday.id` 和 `1` 选择周一。每分类最多显示 100 条，响应最大 2 MB。HTML、XML、需执行脚本或特殊登录签名的接口仍需另外适配。
+
+配置保存在 `SERVER_DATA_DIR/recommendations.json`，首次使用内置预置和 `DEFAULT_RECOMMEND_SOURCE`，保存后以磁盘配置为准。旧版只有名称和开关的三个来源会自动补全原有分类和接口，管理员已有名称、顺序、开关和默认项保持不变。`60S_API_BASE` 用于尚未迁移的热榜默认地址。请随数据目录备份，适用于单实例部署。
+
+`/api/admin/recommendations`（GET / PUT）使用独立后台会话和版本号，冲突返回 409；`/api/admin/recommendations/preview`（POST，`{feed}`）测试草稿但不保存。保存与实际请求均校验公网目标，重定向逐跳验证，不向上游发送观看会话。
+
+网页通过 `/api/status`、iOS 通过 `/api/server/config` 读取显示配置（来源和分类的编号、名称、分组及版本号），不下发上游地址、查询令牌或解析规则。客户端通过 `/api/recommendations/feed?source=编号&feed=分类编号` 获取统一的片名、海报和评分；服务器按当前配置解析，关闭来源后拒绝获取，修改地址或规则后缓存自动失效。网页登录后每分钟同步，iOS 在前台按已有配置刷新周期同步；也可手动刷新。用户已有可用来源的偏好优先，来源停用时临时回退，恢复后沿用原选择。旧 API 保留以兼容旧客户端；首次启用统一接口需更新 iOS 应用，之后修改接口或新增来源无需重新安装。
 
 ### 客户端接口（v1）
 

@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { checkUpstreamAllowed } from '@/lib/ssrf';
 import { guardAdminRequest } from '@/lib/admin-guard';
 import { normalizeRecommendationConfig } from '@/lib/recommendation-config';
 import { readRecommendations, saveRecommendations, RecommendationRevisionConflict } from '@/lib/server-recommendations';
@@ -18,6 +19,10 @@ export async function PUT(req: Request) {
   try {
     const body = await req.json();
     config = normalizeRecommendationConfig(body);
+    for (const source of config.sources) for (const feed of source.feeds ?? []) for (const url of [feed.url!, ...(feed.fallbackUrls ?? [])]) {
+      const verdict = await checkUpstreamAllowed(url);
+      if (!verdict.ok) throw new Error(`${source.name} / ${feed.name}：接口地址不可访问（${verdict.reason}）`);
+    }
     revision = body.revision;
     if (typeof revision !== 'string' || !/^[a-f0-9]{64}$/.test(revision)) throw new Error('配置版本无效');
   } catch (error) {

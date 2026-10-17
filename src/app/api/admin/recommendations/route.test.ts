@@ -7,7 +7,8 @@ import { GET as status } from '../../status/route';
 import { GET as serverConfig } from '../../server/config/route';
 import { ADMIN_SESSION_COOKIE, signAdminSession } from '@/lib/admin-auth';
 import { SESSION_COOKIE, signSession } from '@/lib/auth';
-import { effectiveRecommendationSource } from '@/lib/recommendation-config';
+import { publicRecommendations, effectiveRecommendationSource } from '@/lib/recommendation-config';
+vi.mock('node:dns/promises', () => ({ default: { lookup: vi.fn(async () => [{ address: '8.8.8.8', family: 4 }]) } }));
 let dir: string;
 beforeEach(async () => {
   dir = await mkdtemp(path.join(os.tmpdir(), 'libretv-recommendations-'));
@@ -43,8 +44,8 @@ describe('后台推荐配置与动态下发', () => {
     vi.stubEnv('DEFAULT_RECOMMEND_SOURCE', 'douban');
     expect(await (await GET(request())).json()).toEqual(saved);
     const viewer = request(undefined, 'viewer');
-    expect((await (await status(viewer)).json()).recommendations).toEqual(saved);
-    expect((await (await serverConfig(viewer)).json()).recommendations).toEqual(saved);
+    expect((await (await status(viewer)).json()).recommendations).toEqual(publicRecommendations(saved));
+    expect((await (await serverConfig(viewer)).json()).recommendations).toEqual(publicRecommendations(saved));
     expect((await (await status(request(undefined, 'anonymous'))).json()).recommendations).toBeNull();
     expect(res.headers.get('cache-control')).toContain('no-store');
     expect((await PUT(request({ ...initial, sources: [], defaultSource: null }))).status).toBe(409);

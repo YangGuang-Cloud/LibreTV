@@ -723,7 +723,7 @@ function HomePanel() {
         <SelectRow
           label="推荐数据源"
           value={store.recommendationConfig ? effectiveRecommendationSource(store.recommendationConfig, store.recommendSource, store.recommendSourceTouched) ?? '' : store.recommendSource}
-          onChange={(v) => store.updateSettings({ recommendSource: v as 'douban' | 'bangumi' | 'hot-list' })}
+          onChange={(v) => store.updateSettings({ recommendSource: v })}
           options={recommendationOptions.length ? recommendationOptions : [{ value: '', label: '管理员已关闭推荐来源' }]}
         />
       </div>

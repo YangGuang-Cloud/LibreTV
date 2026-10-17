@@ -23,12 +23,31 @@ export function RecommendSection({ onPick }: { onPick: (title: string) => void }
   const recommendSource = config ? effectiveRecommendationSource(config, preferred, touched) : preferred;
 
   if (!doubanEnabled || !recommendSource) return null;
+  const source = config?.sources.find((source) => source.id === recommendSource);
   return <div>
     {config && <div className="flex flex-wrap gap-2 mb-4" aria-label="推荐来源">
       {config.sources.filter((source) => source.enabled).map((source) => <ChipButton key={source.id} active={recommendSource === source.id} onClick={() => useAppStore.getState().updateSettings({ recommendSource: source.id })}>{source.name}</ChipButton>)}
     </div>}
-    {recommendSource === 'bangumi' ? <BangumiView onPick={onPick} /> : recommendSource === 'hot-list' ? <HotListView onPick={onPick} /> : <DoubanView onPick={onPick} />}
+    {source?.feeds?.length ? <ConfiguredRecommendation key={source.id} source={source} revision={config!.revision} onPick={onPick} /> : recommendSource === 'bangumi' ? <BangumiView onPick={onPick} /> : recommendSource === 'hot-list' ? <HotListView onPick={onPick} /> : <DoubanView onPick={onPick} />}
   </div>;
+}
+
+
+function ConfiguredRecommendation({ source, revision, onPick }: { source: import('@/lib/recommendation-config').RecommendationSource; revision: string; onPick: (title: string) => void }) {
+  const [selectedGroup, setGroup] = useState('');
+  const [selectedFeed, setFeed] = useState('');
+  const allFeeds = source.feeds ?? [];
+  const groups = [...new Set(allFeeds.map((feed) => feed.group ?? ''))];
+  const group = groups.includes(selectedGroup) ? selectedGroup : groups[0];
+  const feeds = allFeeds.filter((feed) => (feed.group ?? '') === group);
+  const feed = feeds.find((feed) => feed.id === selectedFeed) ?? feeds[0];
+  const query = useQuery({ queryKey: ['configured-recommendation', revision, source.id, feed?.id], enabled: !!feed,
+    queryFn: ({ signal }) => api.recommendationFeed(source.id, feed.id, signal) });
+  return <section aria-label="推荐内容">
+    {groups.length > 1 && <div className="flex flex-wrap gap-2 mb-3">{groups.map((name) => <ChipButton key={name} active={name === group} onClick={() => { setGroup(name); setFeed(''); }}>{name || '其他'}</ChipButton>)}</div>}
+    {feeds.length > 1 && <div className="flex flex-wrap gap-1.5 mb-4">{feeds.map((item) => <ChipButton key={item.id} active={item.id === feed.id} onClick={() => setFeed(item.id)}>{item.name}</ChipButton>)}</div>}
+    {query.isError ? <p className="text-center text-sm text-faint py-8">推荐内容加载失败，请稍后重试或切换来源</p> : query.isLoading ? <GridSkeleton /> : !query.data?.items.length ? <p className="text-center text-sm text-faint py-8">该分类暂无推荐内容</p> : <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-2.5">{query.data.items.map((item) => <DoubanCard key={item.id} item={item} onClick={() => onPick(item.title)} />)}</div>}
+  </section>;
 }
 
 /**

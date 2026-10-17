@@ -1,3 +1,4 @@
+import { validRecommendationID } from './recommendation-config';
 /** Web 与原生客户端共用的账号数据协议；版本由服务器分配，不信任设备时钟。 */
 export const SYNC_PROTOCOL = 1;
 export const SYNC_BATCH_SIZE = 100;
@@ -42,7 +43,7 @@ const strings = (value: unknown) => Array.isArray(value) && value.length <= 2000
 function preference(key: string, value: unknown): boolean {
   if (!(SYNC_PREFERENCE_KEYS as readonly string[]).includes(key)) return false;
   if (['yellowFilter', 'adFilter', 'doubanEnabled', 'recommendSourceTouched', 'autoplayNext', 'imageProxyModeTouched'].includes(key)) return typeof value === 'boolean';
-  if (key === 'recommendSource') return ['douban', 'bangumi', 'hot-list'].includes(String(value));
+  if (key === 'recommendSource') return validRecommendationID(value);
   if (key === 'imageProxyMode') return ['direct', 'proxy', 'custom'].includes(String(value));
   if (key === 'customImageProxy') return text(value);
   if (['customAPIs', 'subscriptions', 'liveSubscriptions'].includes(key)) return Array.isArray(value) && value.length <= 2000 && value.every((item) => isObject(item) && text(item.url) && !!item.url && (key !== 'customAPIs' || (text(item.key, 200) && text(item.name, 300))) && (item.name === undefined || text(item.name, 300)) && (item.enabled === undefined || typeof item.enabled === 'boolean') && (item.fromSubscriptions === undefined || strings(item.fromSubscriptions)));

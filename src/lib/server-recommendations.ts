@@ -9,9 +9,9 @@ function snapshot(config: RecommendationConfig): RecommendationSnapshot {
   return { ...config, revision: createHash('sha256').update(JSON.stringify(config)).digest('hex') };
 }
 export async function readRecommendations(): Promise<RecommendationSnapshot> {
-  try { return snapshot(normalizeRecommendationConfig(JSON.parse(await readFile(configPath(), 'utf8')))); }
+  try { return snapshot(normalizeRecommendationConfig(JSON.parse(await readFile(configPath(), 'utf8')), process.env['60S_API_BASE'])); }
   catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return snapshot(defaultRecommendationConfig(getEnvRecommendSource()));
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return snapshot(defaultRecommendationConfig(getEnvRecommendSource(), process.env['60S_API_BASE']));
     throw error;
   }
 }

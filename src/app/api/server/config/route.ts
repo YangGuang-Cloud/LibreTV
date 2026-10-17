@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { guardRequest } from '@/lib/api-guard';
 import { readServerSources, serverSourceMode } from '@/lib/server-sources';
 
+import { publicRecommendations } from '@/lib/recommendation-config';
 import { readRecommendations } from '@/lib/server-recommendations';
 
 export const runtime = 'nodejs';
@@ -15,7 +16,7 @@ export async function GET(req: Request) {
     const { sources, revision } = await readServerSources();
     return NextResponse.json({
       apiVersion: 1, sourceMode: 'server', revision,
-      recommendations: await readRecommendations(),
+      recommendations: publicRecommendations(await readRecommendations()),
       sources: sources.map(({ key, name, isAdult }) => ({ key, name, isAdult: isAdult === true })),
     }, { headers: { 'Cache-Control': 'private, no-store' } });
   } catch {

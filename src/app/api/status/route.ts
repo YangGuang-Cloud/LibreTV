@@ -4,6 +4,7 @@ import { accountMode } from '@/lib/account-mode';
 import { getEnvSources } from '@/lib/env-sources';
 import { getEnvLiveSources } from '@/lib/env-live-sources';
 import { getEnvSubscriptions } from '@/lib/env-subscriptions';
+import { publicRecommendations, legacyRecommendationDefault } from '@/lib/recommendation-config';
 import { readRecommendations } from '@/lib/server-recommendations';
 import { getEnvImageMode } from '@/lib/env-image-mode';
 import { readServerSources, serverSourceMode } from '@/lib/server-sources';
@@ -43,8 +44,8 @@ export async function GET(req: Request) {
     // 部署者通过 DEFAULT_SUBSCRIPTIONS 预置的 SourceList 订阅链接
     defaultSubscriptions: verified && !managed ? getEnvSubscriptions() : [],
     // 保留旧客户端默认项字段；新客户端同时读取完整的推荐配置。
-    defaultRecommendSource: recommendations?.defaultSource ?? null,
-    recommendations: recommendations ?? null,
+    defaultRecommendSource: recommendations ? legacyRecommendationDefault(recommendations) : null,
+    recommendations: recommendations ? publicRecommendations(recommendations) : null,
     // 部署者通过 DEFAULT_IMAGE_MODE 指定的封面图加载方式默认值（未配置时为 null）
     defaultImageMode: getEnvImageMode() ?? null,
   }, { headers: { 'Cache-Control': 'private, no-store', Vary: 'Cookie' } });

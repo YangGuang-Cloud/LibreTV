@@ -102,6 +102,7 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
+  recommendationFeed: (source: string, feed: string, signal?: AbortSignal) => request<DoubanResponse>(`/api/recommendations/feed?${new URLSearchParams({ source, feed })}`, { signal }),
   status: () => request<AuthStatusResponse>('/api/status'),
 
   login: async (password: string, username?: string) => {

@@ -103,9 +103,8 @@ export function AdminRecommendationManager({ onSessionExpired }: { onSessionExpi
             const groups = [...new Set(item.feeds?.map((feed) => feed.group).filter(Boolean) ?? [])];
             return <article key={item.id} className="card overflow-hidden flex flex-col border border-line transition-colors hover:border-accent/40">
               <button className="text-left p-5 pb-4 flex-1 w-full group" aria-label={`编辑${item.name}`} onClick={() => navigate(item.id)}>
-                <div className="flex items-start justify-between gap-3"><span className="grid h-11 w-11 place-items-center rounded-xl bg-accent/10 text-accent font-semibold text-lg">{item.name.slice(0, 1) || '源'}</span><span className={`rounded-full px-2.5 py-1 text-xs ${item.enabled ? 'bg-success/10 text-success' : 'bg-chip text-muted'}`}>{item.enabled ? '已启用' : '已停用'}</span></div>
-                <div className="mt-4 flex flex-wrap items-center gap-2"><h3 className="text-lg font-semibold group-hover:text-accent">{item.name || '未命名来源'}</h3>{draft.defaultSource === item.id && <span className="text-xs rounded-md bg-accent/10 text-accent px-2 py-0.5">默认</span>}</div>
-                <p className="mt-2 text-sm text-muted">{item.feeds?.length ?? 0} 个分类{groups.length ? ` · ${groups.join(' / ')}` : ''}</p>
+                <div className="flex items-start justify-between gap-3"><div className="flex min-w-0 flex-wrap items-center gap-2"><h3 className="min-w-0 rounded-xl bg-accent/10 px-3 py-2 text-accent font-semibold text-lg break-words">{item.name || '未命名来源'}</h3>{draft.defaultSource === item.id && <span className="text-xs rounded-md bg-accent/10 text-accent px-2 py-0.5">默认</span>}</div><span className={`shrink-0 rounded-full px-2.5 py-1 text-xs ${item.enabled ? 'bg-success/10 text-success' : 'bg-chip text-muted'}`}>{item.enabled ? '已启用' : '已停用'}</span></div>
+                <p className="mt-4 text-sm text-muted">{item.feeds?.length ?? 0} 个分类{groups.length ? ` · ${groups.join(' / ')}` : ''}</p>
                 <p className="mt-5 text-sm font-medium text-accent">进入编辑 <span aria-hidden>→</span></p>
               </button>
               <div className="flex items-center justify-between gap-2 border-t border-line bg-chip/30 px-4 py-3">

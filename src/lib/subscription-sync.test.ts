@@ -238,3 +238,15 @@ describe('applyEnvPresets · DEFAULT_IMAGE_MODE', () => {
     expect(useAppStore.getState().imageProxyModeTouched).toBe(false);
   });
 });
+
+it('后台推荐配置刷新不改写个人来源偏好，空列表也会同步', async () => {
+  useAppStore.setState({ recommendSource: 'douban', recommendSourceTouched: true });
+  await applyEnvPresets(status({ recommendations: {
+    sources: [{ id: 'bangumi', name: '动画推荐', enabled: true }], defaultSource: 'bangumi', revision: 'first',
+  } }));
+  expect(useAppStore.getState().recommendationConfig?.sources[0].name).toBe('动画推荐');
+  expect(useAppStore.getState().recommendSource).toBe('douban');
+  await applyEnvPresets(status({ recommendations: { sources: [], defaultSource: null, revision: 'second' } }));
+  expect(useAppStore.getState().recommendationConfig?.sources).toEqual([]);
+  expect(useAppStore.getState().recommendSourceTouched).toBe(true);
+});

@@ -173,6 +173,7 @@ export interface SourceHealthEntry {
 }
 
 interface AppState extends AppSettings {
+  recommendationConfig: import('./recommendation-config').RecommendationConfig | null;
   /** 服务器模式下仅使用管理员下发的点播源，不持久化。 */
   serverSourceMode: boolean;
   /** 部署者通过 DEFAULT_SOURCES 环境变量预置的源（服务端下发，不持久化） */
@@ -271,6 +272,7 @@ function nextCustomKey(apiList: SourceConfig[]): string {
 export const useAppStore = create<AppState>()(
     (set, get) => ({
       serverSourceMode: false,
+      recommendationConfig: null,
       customAPIs: [],
       envSources: [],
       envKeysSeen: [],

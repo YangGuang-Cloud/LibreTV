@@ -8,6 +8,8 @@ import { cn } from '@/lib/utils';
 import type { DoubanItem } from '@/lib/types';
 import { DoubanCard } from './video-card';
 
+import { effectiveRecommendationSource } from '@/lib/recommendation-config';
+
 const MOVIE_TAGS = ['热门', '最新', '经典', '豆瓣高分', '冷门佳片', '华语', '欧美', '韩国', '日本', '动画'];
 const TV_TAGS = ['热门', '美剧', '英剧', '韩剧', '日剧', '国产剧', '港剧', '日本动画', '综艺', '纪录片'];
 const WEEKDAYS = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
@@ -15,12 +17,18 @@ const WEEKDAYS = ['周一', '周二', '周三', '周四', '周五', '周六', '�
 /** 首页推荐区：数据源由设置决定（豆瓣热门 / Bangumi 新番放送 / 影视热榜），二选一展示 */
 export function RecommendSection({ onPick }: { onPick: (title: string) => void }) {
   const doubanEnabled = useAppStore((s) => s.doubanEnabled);
-  const recommendSource = useAppStore((s) => s.recommendSource);
+  const preferred = useAppStore((s) => s.recommendSource);
+  const touched = useAppStore((s) => s.recommendSourceTouched);
+  const config = useAppStore((s) => s.recommendationConfig);
+  const recommendSource = config ? effectiveRecommendationSource(config, preferred, touched) : preferred;
 
-  if (!doubanEnabled) return null;
-  if (recommendSource === 'bangumi') return <BangumiView onPick={onPick} />;
-  if (recommendSource === 'hot-list') return <HotListView onPick={onPick} />;
-  return <DoubanView onPick={onPick} />;
+  if (!doubanEnabled || !recommendSource) return null;
+  return <div>
+    {config && <div className="flex flex-wrap gap-2 mb-4" aria-label="推荐来源">
+      {config.sources.filter((source) => source.enabled).map((source) => <ChipButton key={source.id} active={recommendSource === source.id} onClick={() => useAppStore.getState().updateSettings({ recommendSource: source.id })}>{source.name}</ChipButton>)}
+    </div>}
+    {recommendSource === 'bangumi' ? <BangumiView onPick={onPick} /> : recommendSource === 'hot-list' ? <HotListView onPick={onPick} /> : <DoubanView onPick={onPick} />}
+  </div>;
 }
 
 /**

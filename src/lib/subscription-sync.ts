@@ -109,6 +109,7 @@ export async function syncEnvSubscriptions(subs: { url: string; name?: string }[
 export async function applyEnvPresets(status: AuthStatusResponse): Promise<void> {
   useAppStore.setState({ serverSourceMode: status.sourceMode === 'server' });
   if (!status.verified) return;
+  useAppStore.setState({ recommendationConfig: status.recommendations ?? null });
   if (Array.isArray(status.defaultSources)) {
     const previous = new Map(useAppStore.getState().envSources.map((source) => [source.key, source]));
     for (const source of status.defaultSources) {
@@ -128,7 +129,7 @@ export async function applyEnvPresets(status: AuthStatusResponse): Promise<void>
   // 已有偏好的用户——包括清缓存前做过选择的——不被覆盖，用户的选择始终优先。
   // 直写 setState 而非 updateSettings：自动预置不算用户主动选择，不打「已选择」标记；
   // 应用后当前值 ≠ hot-list，AuthProvider 的幂等重入天然跳过。
-  if (status.defaultRecommendSource) {
+  if (!status.recommendations && status.defaultRecommendSource) {
     const s = useAppStore.getState();
     if (!s.recommendSourceTouched && s.recommendSource === 'hot-list') {
       useAppStore.setState({ recommendSource: status.defaultRecommendSource });

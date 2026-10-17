@@ -1,5 +1,7 @@
 'use client';
 
+import { effectiveRecommendationSource } from '@/lib/recommendation-config';
+
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Drawer } from './drawer';
 import { ConfirmDialog } from './confirm-dialog';
@@ -695,6 +697,13 @@ function CustomProxyInput() {
 
 function HomePanel() {
   const store = useAppStore();
+  const recommendationOptions = store.recommendationConfig
+    ? store.recommendationConfig.sources.filter((source) => source.enabled).map((source) => ({ value: source.id, label: source.name }))
+    : [
+        { value: 'douban', label: '豆瓣', hint: '热门电影与剧集' },
+        { value: 'bangumi', label: 'Bangumi', hint: '每日新番放送（免 key）' },
+        { value: 'hot-list', label: '影视榜单', hint: '豆瓣周榜 / 百度热播' },
+      ];
   return (
     <section>
       <SectionTitle title="首页与内容过滤" />
@@ -713,13 +722,9 @@ function HomePanel() {
         />
         <SelectRow
           label="推荐数据源"
-          value={store.recommendSource}
+          value={store.recommendationConfig ? effectiveRecommendationSource(store.recommendationConfig, store.recommendSource, store.recommendSourceTouched) ?? '' : store.recommendSource}
           onChange={(v) => store.updateSettings({ recommendSource: v as 'douban' | 'bangumi' | 'hot-list' })}
-          options={[
-            { value: 'douban', label: '豆瓣', hint: '热门电影与剧集' },
-            { value: 'bangumi', label: 'Bangumi', hint: '每日新番放送（免 key）' },
-            { value: 'hot-list', label: '影视榜单', hint: '豆瓣周榜 / 百度热播' },
-          ]}
+          options={recommendationOptions.length ? recommendationOptions : [{ value: '', label: '管理员已关闭推荐来源' }]}
         />
       </div>
     </section>

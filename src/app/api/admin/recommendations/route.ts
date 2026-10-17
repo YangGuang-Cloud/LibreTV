@@ -1,0 +1,31 @@
+import { NextResponse } from 'next/server';
+import { guardAdminRequest } from '@/lib/admin-guard';
+import { normalizeRecommendationConfig } from '@/lib/recommendation-config';
+import { readRecommendations, saveRecommendations, RecommendationRevisionConflict } from '@/lib/server-recommendations';
+
+export const runtime = 'nodejs';
+const headers = { 'Cache-Control': 'private, no-store' };
+export async function GET(req: Request) {
+  const guarded = guardAdminRequest(req);
+  if (guarded) return guarded;
+  try { return NextResponse.json(await readRecommendations(), { headers }); }
+  catch { return NextResponse.json({ error: '推荐配置读取失败' }, { status: 500, headers }); }
+}
+export async function PUT(req: Request) {
+  const guarded = guardAdminRequest(req);
+  if (guarded) return guarded;
+  let config, revision;
+  try {
+    const body = await req.json();
+    config = normalizeRecommendationConfig(body);
+    revision = body.revision;
+    if (typeof revision !== 'string' || !/^[a-f0-9]{64}$/.test(revision)) throw new Error('配置版本无效');
+  } catch (error) {
+    return NextResponse.json({ error: error instanceof Error ? error.message : '请求格式错误' }, { status: 400, headers });
+  }
+  try { return NextResponse.json(await saveRecommendations(config, revision), { headers }); }
+  catch (error) {
+    const conflict = error instanceof RecommendationRevisionConflict;
+    return NextResponse.json({ error: conflict ? error.message : '推荐配置保存失败' }, { status: conflict ? 409 : 500, headers });
+  }
+}

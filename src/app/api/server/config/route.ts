@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server';
 import { guardRequest } from '@/lib/api-guard';
 import { readServerSources, serverSourceMode } from '@/lib/server-sources';
 
+import { readRecommendations } from '@/lib/server-recommendations';
+
 export const runtime = 'nodejs';
 
 /** 原生客户端只获取源编号和显示信息，无须配置资源站地址。 */
@@ -13,6 +15,7 @@ export async function GET(req: Request) {
     const { sources, revision } = await readServerSources();
     return NextResponse.json({
       apiVersion: 1, sourceMode: 'server', revision,
+      recommendations: await readRecommendations(),
       sources: sources.map(({ key, name, isAdult }) => ({ key, name, isAdult: isAdult === true })),
     }, { headers: { 'Cache-Control': 'private, no-store' } });
   } catch {

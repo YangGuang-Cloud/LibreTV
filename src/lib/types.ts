@@ -95,6 +95,7 @@ export interface BangumiCalendarResponse {
 }
 
 export interface AuthStatusResponse {
+  recommendations?: import('./recommendation-config').RecommendationSnapshot | null;
   authMode?: 'account' | 'password';
   user?: { id: string; username: string | null; name: string } | null;
   /** 服务器是否配置了 PASSWORD */
@@ -109,7 +110,7 @@ export interface AuthStatusResponse {
   defaultLiveSources: LiveSourceConfig[];
   /** 部署者通过 DEFAULT_SUBSCRIPTIONS 环境变量预置的 SourceList 订阅链接（未配置时为空数组） */
   defaultSubscriptions: { url: string; name?: string }[];
-  /** 部署者通过 DEFAULT_RECOMMEND_SOURCE 环境变量指定的首页推荐数据源默认值（未配置时为 null） */
+  /** 首页默认推荐来源；后台配置优先于环境预置，全部关闭时为 null。 */
   defaultRecommendSource: 'douban' | 'bangumi' | 'hot-list' | null;
   /** 部署者通过 DEFAULT_IMAGE_MODE 环境变量指定的封面图加载方式默认值（未配置时为 null） */
   defaultImageMode: 'direct' | 'proxy' | null;

@@ -2,11 +2,14 @@
 
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import { ConfirmDialog } from './confirm-dialog';
+import { AdminAccountDetailView } from './admin-account-detail';
 
 interface User { id: string; username: string; name: string; banned: number; passwordAvailable: boolean; }
 
 export function AdminUserManager({ onSessionExpired }: { onSessionExpired: () => void }) {
   const [users, setUsers] = useState<User[]>([]);
+  const [selectedUser, setSelectedUser] = useState<User | null>(null);
+  const [detailRevision, setDetailRevision] = useState(0);
   const [total, setTotal] = useState(0);
   const [offset, setOffset] = useState(0);
   const [username, setUsername] = useState('');
@@ -84,6 +87,7 @@ export function AdminUserManager({ onSessionExpired }: { onSessionExpired: () =>
       if (!response.ok) throw new Error(data.error || '操作失败');
       setMessage(success);
       await load();
+      setDetailRevision((value) => value + 1);
       return true;
     } catch (cause) { setError(cause instanceof Error ? cause.message : '操作失败'); return false; }
     finally { setBusy(false); }
@@ -95,38 +99,57 @@ export function AdminUserManager({ onSessionExpired }: { onSessionExpired: () =>
     }
   };
 
-  return <section className="space-y-6">
-    <div><h2 className="text-lg font-semibold">账号管理</h2><p className="mt-2 text-sm text-muted">仅管理员可创建账号，本站不开放注册。停用或重置密码会立即退出该账号的所有设备。新建或重新设置后的密码支持管理员查看。</p></div>
-    {error && <p role="alert" className="text-sm text-danger">{error}</p>}
-    {message && <p role="status" className="text-sm text-accent">{message}</p>}
-    <form onSubmit={(event) => void create(event)} className="card p-5 space-y-4">
-      <h3 className="font-medium">添加账号</h3>
-      <div className="grid gap-4 sm:grid-cols-3">
-        <label className="text-sm">账号<input required minLength={3} maxLength={32} pattern="[a-zA-Z0-9_]{3,32}" autoComplete="off" className="input w-full mt-2" placeholder="字母、数字或下划线" value={username} onChange={(event) => setUsername(event.target.value)} /></label>
-        <label className="text-sm">显示名称<input maxLength={80} className="input w-full mt-2" placeholder="选填，默认使用账号" value={name} onChange={(event) => setName(event.target.value)} /></label>
-        <label className="text-sm">初始密码<input required type="password" minLength={6} maxLength={128} autoComplete="new-password" className="input w-full mt-2" placeholder="至少 6 位" value={password} onChange={(event) => setPassword(event.target.value)} /></label>
-      </div>
-      <button className="btn-primary" disabled={busy}>{busy ? '正在处理…' : '创建账号'}</button>
-    </form>
-    <div className="card p-5 space-y-4">
-      <h3 className="font-medium">已有账号（{total}）</h3>
-      {loading ? <p className="text-muted text-sm">正在读取…</p> : users.length === 0 ? <p className="text-muted text-sm">还没有账号，添加后即可在观看网页登录。</p> : users.map((user) => <div key={user.id} className="flex flex-wrap items-center gap-3 border-b border-line pb-4 last:border-0">
-        <div className="flex-1 min-w-32"><p className="font-medium">{user.name}</p><p className="text-sm text-muted">{user.username} · {user.banned ? '已停用' : '正常'}</p></div>
-        {user.passwordAvailable ? <button className="btn-ghost text-sm" disabled={busy || revealingId === user.id} onClick={() => shownPassword?.userId === user.id ? hidePassword() : void reveal(user)}>{revealingId === user.id ? '读取中…' : shownPassword?.userId === user.id ? '隐藏密码' : '查看密码'}</button> : <span className="text-xs text-muted">需重置后才能查看密码</span>}
-        <button className="btn-ghost text-sm" disabled={busy} onClick={() => { hidePassword(); setResetUser(user); setResetPassword(''); }}>重置密码</button>
-        <button className="btn-ghost text-sm" disabled={busy} onClick={() => user.banned ? void mutate('PATCH', { userId: user.id, action: 'enable' }, '账号已启用') : setDisableUser(user)}>{user.banned ? '启用账号' : '停用账号'}</button>
-        {shownPassword?.userId === user.id && <div className="w-full rounded-lg bg-chip p-3 space-y-2">
-          <label className="block text-sm">{user.username} 的密码<input className="input w-full mt-2" type="text" readOnly autoComplete="off" value={shownPassword.password} /></label>
-          <p className="text-xs text-muted">30 秒后自动隐藏，离开此窗口也会隐藏。</p>
-        </div>}
-      </div>)}
-      {total > 50 && <div className="flex items-center gap-4"><button className="btn-ghost" disabled={loading || offset === 0} onClick={() => setOffset(Math.max(0, offset - 50))}>上一页</button><span className="text-sm text-muted">第 {offset / 50 + 1} 页</span><button className="btn-ghost" disabled={loading || offset + 50 >= total} onClick={() => setOffset(offset + 50)}>下一页</button></div>}
+  const currentUser = selectedUser ? users.find((user) => user.id === selectedUser.id) || selectedUser : null;
+  const closeDetail = () => { hidePassword(); setResetUser(null); setResetPassword(''); setDisableUser(null); setSelectedUser(null); setError(''); setMessage(''); };
+  const accountActions = currentUser && <div className="space-y-3 border-t border-line pt-4">
+    <div className="flex flex-wrap gap-2">
+      {currentUser.passwordAvailable ? <button className="btn-ghost text-sm" disabled={busy || revealingId === currentUser.id} onClick={() => shownPassword?.userId === currentUser.id ? hidePassword() : void reveal(currentUser)}>{revealingId === currentUser.id ? '读取中…' : shownPassword?.userId === currentUser.id ? '隐藏密码' : '查看密码'}</button> : <span className="text-xs text-muted self-center">需重置后才能查看密码</span>}
+      <button className="btn-ghost text-sm" disabled={busy} onClick={() => { hidePassword(); setResetUser(currentUser); setResetPassword(''); }}>重置密码</button>
+      <button className="btn-ghost text-sm" disabled={busy} onClick={() => currentUser.banned ? void mutate('PATCH', { userId: currentUser.id, action: 'enable' }, '账号已启用') : setDisableUser(currentUser)}>{currentUser.banned ? '启用账号' : '停用账号'}</button>
     </div>
-    <ConfirmDialog open={!!disableUser} title={`停用账号 ${disableUser?.username || ''}？`} message="该账号将立即退出所有设备，无法再次登录。已有数据会保留，之后可重新启用。" confirmLabel="停用账号" danger onCancel={() => setDisableUser(null)} onConfirm={() => { const user = disableUser; setDisableUser(null); if (user) void mutate('PATCH', { userId: user.id, action: 'disable' }, '账号已停用'); }} />
-    {resetUser && <form className="card p-5 space-y-4" onSubmit={(event) => { event.preventDefault(); void mutate('PATCH', { userId: resetUser.id, action: 'reset-password', password: resetPassword }, '密码已重置，所有设备已退出登录').then((ok) => { if (ok) { setResetUser(null); setResetPassword(''); } }); }}>
+    {shownPassword?.userId === currentUser.id && <div className="rounded-lg bg-chip p-3 space-y-2">
+      <label className="block text-sm">{currentUser.username} 的密码<input className="input w-full mt-2" type="text" readOnly autoComplete="off" value={shownPassword.password} /></label>
+      <p className="text-xs text-muted">30 秒后自动隐藏，离开此窗口也会隐藏。</p>
+    </div>}
+    {resetUser && <form className="rounded-lg bg-chip p-4 space-y-4" onSubmit={(event) => { event.preventDefault(); void mutate('PATCH', { userId: resetUser.id, action: 'reset-password', password: resetPassword }, '密码已重置，所有设备已退出登录').then((ok) => { if (ok) { setResetUser(null); setResetPassword(''); } }); }}>
       <h3 className="font-medium">重置 {resetUser.username} 的密码</h3>
       <label className="block text-sm">新密码<input autoFocus required type="password" minLength={6} maxLength={128} autoComplete="new-password" className="input w-full mt-2" value={resetPassword} onChange={(event) => setResetPassword(event.target.value)} /></label>
       <div className="flex gap-3"><button className="btn-primary" disabled={busy}>确认重置</button><button type="button" className="btn-ghost" disabled={busy} onClick={() => { setResetUser(null); setResetPassword(''); }}>取消</button></div>
     </form>}
+  </div>;
+
+  return <section className="space-y-6">
+    <div className="flex flex-wrap items-center gap-3">
+      {selectedUser && <button className="btn-ghost" onClick={closeDetail} disabled={busy}>← 返回账号列表</button>}
+      <h2 className="text-lg font-semibold">{selectedUser ? '账号详情' : '账号管理'}</h2>
+    </div>
+    {error && <p role="alert" className="text-sm text-danger">{error}</p>}
+    {message && <p role="status" className="text-sm text-accent">{message}</p>}
+    <div hidden={!!selectedUser} className="space-y-5">
+      <details className="card p-5">
+        <summary className="font-medium cursor-pointer">添加账号</summary>
+        <form onSubmit={(event) => void create(event)} className="space-y-4 mt-5">
+          <div className="grid gap-4 sm:grid-cols-3">
+            <label className="text-sm">账号<input required minLength={3} maxLength={32} pattern="[a-zA-Z0-9_]{3,32}" autoComplete="off" className="input w-full mt-2" placeholder="字母、数字或下划线" value={username} onChange={(event) => setUsername(event.target.value)} /></label>
+            <label className="text-sm">显示名称<input maxLength={80} className="input w-full mt-2" placeholder="选填，默认使用账号" value={name} onChange={(event) => setName(event.target.value)} /></label>
+            <label className="text-sm">初始密码<input required type="password" minLength={6} maxLength={128} autoComplete="new-password" className="input w-full mt-2" placeholder="至少 6 位" value={password} onChange={(event) => setPassword(event.target.value)} /></label>
+          </div>
+          <button className="btn-primary" disabled={busy}>{busy ? '正在处理…' : '创建账号'}</button>
+        </form>
+      </details>
+      <div className="card p-5 space-y-4">
+        <div className="flex items-center justify-between gap-3"><h3 className="font-medium">全部账号（{total}）</h3><button className="btn-ghost text-sm" disabled={loading} onClick={() => void load()}>刷新</button></div>
+        {loading && users.length === 0 ? <p className="text-muted text-sm py-8 text-center">正在读取…</p> : users.length === 0 ? <p className="text-muted text-sm py-8 text-center">暂无账号</p> : <div className="max-h-[65vh] overflow-y-auto overscroll-contain space-y-2 pr-1" aria-label="账号列表" tabIndex={0}>
+          {users.map((user) => <button key={user.id} className="w-full flex items-center gap-4 rounded-xl border border-line p-4 text-left hover:bg-chip transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent" onClick={() => { hidePassword(); setError(''); setMessage(''); setSelectedUser(user); }}>
+            <span className="flex-1 min-w-0"><span className="block font-medium truncate">{user.name}</span><span className="block text-sm text-muted truncate mt-1">{user.username}</span></span>
+            <span className={`rounded-full px-2.5 py-1 text-xs ${user.banned ? 'bg-danger/10 text-danger' : 'bg-accent/10 text-accent'}`}>{user.banned ? '已停用' : '正常'}</span>
+            <span className="text-sm text-muted">详情 ›</span>
+          </button>)}
+        </div>}
+        {total > 50 && <div className="flex flex-wrap items-center gap-4"><button className="btn-ghost" disabled={loading || offset === 0} onClick={() => setOffset(Math.max(0, offset - 50))}>上一页</button><span className="text-sm text-muted">第 {offset / 50 + 1} 页</span><button className="btn-ghost" disabled={loading || offset + 50 >= total} onClick={() => setOffset(offset + 50)}>下一页</button></div>}
+      </div>
+    </div>
+    {selectedUser && <AdminAccountDetailView key={selectedUser.id} userId={selectedUser.id} revision={detailRevision} onSessionExpired={onSessionExpired} actions={accountActions} />}
+    <ConfirmDialog open={!!disableUser} title={`停用账号 ${disableUser?.username || ''}？`} message="该账号将立即退出所有设备，无法再次登录。已有数据会保留，之后可重新启用。" confirmLabel="停用账号" danger onCancel={() => setDisableUser(null)} onConfirm={() => { const user = disableUser; setDisableUser(null); if (user) void mutate('PATCH', { userId: user.id, action: 'disable' }, '账号已停用'); }} />
   </section>;
 }

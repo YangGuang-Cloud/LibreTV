@@ -80,7 +80,7 @@ PASSWORD=your-password npm start   # 监听 8080
 
 ### 个人账号与后台管理
 
-账号模式使用 Better Auth + SQLite，不开放注册。管理员访问 `/admin`，用 `ADMIN_PASSWORD` 登录，在「账号管理」中创建账号、启用/停用账号或重置密码。账号管理不依赖 `SOURCE_MODE=server`，与点播源管理可分别使用。
+账号模式使用 Better Auth + SQLite，不开放注册。管理员访问 `/admin`，用 `ADMIN_PASSWORD` 登录，在「账号管理」中创建账号、启用/停用账号或重置密码。账号管理不依赖 `SOURCE_MODE=server`，与点播源管理可分别使用。 账号列表支持区域滚动，点击账号进入详情；可分页查看观看历史、搜索历史、分集进度、账号设置、直播收藏、直播历史与有效登录会话。管理员详情包含客户端已隐藏的保留记录及其隐藏时间，只读展示每条记录最后保存的内容，不恢复到客户端；登录会话仅展示设备信息、IP 与时间，不返回会话令牌。
 
 启用前，在服务器的 `/etc/libretv/runtime.env`（本地为 `.env.local`）配置：
 

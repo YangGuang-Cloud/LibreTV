@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { GET as listUsers, POST as createUser, PATCH as updateUser } from '@/app/api/admin/users/route';
 import { POST as revealPassword } from '@/app/api/admin/users/password/route';
+import { GET as accountDetail } from '@/app/api/admin/users/detail/route';
 import { POST as login, DELETE as logout } from '@/app/api/auth/route';
 import { GET as status } from '@/app/api/status/route';
 import { POST as frameworkEndpoint } from '@/app/api/auth/[...account]/route';
@@ -152,6 +153,26 @@ describe.sequential('真实 SQLite 账号闭环', () => {
     const current = await (await status(request('/api/status', 'GET', undefined, cookie))).json();
     expect(current.user).toMatchObject({ username: 'shortpassfriend', name: '短密码测试' });
     expect((await logout(request('/api/auth', 'DELETE', undefined, cookie))).status).toBe(200);
+  });
+  it('账号详情只允许独立管理员会话读取，响应禁止缓存，参数错误不泄露数据库信息', async () => {
+    const { database } = await getAccountAuth();
+    const { id } = database.prepare("SELECT id FROM user WHERE username='shortpassfriend'").get() as { id: string };
+    const route = '/api/admin/users/detail?userId=' + encodeURIComponent(id);
+    expect((await accountDetail(request(route))).status).toBe(401);
+    expect((await accountDetail(request(route, 'GET', undefined, `${SESSION_COOKIE}=${signSession().token}`))).status).toBe(401);
+    const viewerRequest = request('/api/auth', 'POST', { username: 'shortpassfriend', password: 'six123' });
+    viewerRequest.headers.set('x-forwarded-for', '192.0.2.90');
+    const viewer = await login(viewerRequest);
+    expect(viewer.status).toBe(200);
+    expect((await accountDetail(request(route, 'GET', undefined, cookies(viewer)))).status).toBe(401);
+    const response = await accountDetail(request(route, 'GET', undefined, adminCookie));
+    expect(response.status).toBe(200);
+    expect(response.headers.get('cache-control')).toContain('no-store');
+    const data = await response.json();
+    expect(data.user.username).toBe('shortpassfriend');
+    expect(JSON.stringify(data)).not.toContain('six123');
+    expect((await accountDetail(request(route + '&section=invalid', 'GET', undefined, adminCookie))).status).toBe(400);
+    expect((await accountDetail(request('/api/admin/users/detail?userId=missing', 'GET', undefined, adminCookie))).status).toBe(404);
   });
   it('连续尝试登录会限流', async () => {
     let limited = false;

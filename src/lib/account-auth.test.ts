@@ -162,6 +162,7 @@ describe.sequential('真实 SQLite 账号闭环', () => {
     expect((await accountDetail(request(route, 'GET', undefined, `${SESSION_COOKIE}=${signSession().token}`))).status).toBe(401);
     const viewerRequest = request('/api/auth', 'POST', { username: 'shortpassfriend', password: 'six123' });
     viewerRequest.headers.set('x-forwarded-for', '192.0.2.90');
+    viewerRequest.headers.set('user-agent', 'Luna12TV/2.16.18 (iOS 27.0; iPhone19,2)');
     const viewer = await login(viewerRequest);
     expect(viewer.status).toBe(200);
     expect((await accountDetail(request(route, 'GET', undefined, cookies(viewer)))).status).toBe(401);
@@ -170,6 +171,9 @@ describe.sequential('真实 SQLite 账号闭环', () => {
     expect(response.headers.get('cache-control')).toContain('no-store');
     const data = await response.json();
     expect(data.user.username).toBe('shortpassfriend');
+    const deviceResponse = await accountDetail(request(route + '&section=sessions', 'GET', undefined, adminCookie));
+    const deviceData = await deviceResponse.json();
+    expect(deviceData.sessions.some((session: { userAgent: string }) => session.userAgent === 'Luna12TV/2.16.18 (iOS 27.0; iPhone19,2)')).toBe(true);
     expect(JSON.stringify(data)).not.toContain('six123');
     expect((await accountDetail(request(route + '&section=invalid', 'GET', undefined, adminCookie))).status).toBe(400);
     expect((await accountDetail(request('/api/admin/users/detail?userId=missing', 'GET', undefined, adminCookie))).status).toBe(404);

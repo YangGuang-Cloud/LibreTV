@@ -2,6 +2,7 @@
 
 import { useEffect, useState, type ReactNode } from 'react';
 import type { AdminAccountDetail, AdminAccountRecord, AdminAccountSection } from '@/lib/account-admin-model';
+import { describeSessionDevice } from '@/lib/session-device';
 
 const sections: { key: AdminAccountSection; label: string }[] = [
   { key: 'history', label: '观看历史' }, { key: 'search', label: '搜索历史' },
@@ -118,12 +119,17 @@ export function AdminAccountDetailView({ userId, revision, onSessionExpired, act
             {row.value === null && <p className="text-xs text-muted">此记录没有保留下来的原始内容。</p>}
             <p className="text-xs text-muted">服务器更新时间：{accountDate(row.updatedAt)}</p>
           </article>)}
-          {current.sessions.map((session, index) => <article key={`${offset}-${index}`} className="py-4 space-y-2 text-sm">
-            <p className="font-medium break-words">{session.userAgent || '设备信息未提供'}</p>
+          {current.sessions.map((session, index) => {
+            const device = describeSessionDevice(session.userAgent);
+            return <article key={`${offset}-${index}`} className="py-4 space-y-2 text-sm">
+            <p className="font-medium break-words">{device.name}</p>
+            <p className="text-muted">{device.detail}</p>
+            {!device.exactModel && <p className="text-xs text-muted">具体型号未提供</p>}
+            {session.userAgent && <details className="text-xs text-muted"><summary className="cursor-pointer">原始设备信息</summary><p className="mt-2 break-all">{session.userAgent}</p></details>}
             <p className="text-muted">IP：{session.ipAddress || '未记录'}</p>
             <p className="text-xs text-muted">登录：{accountDate(session.createdAt)}</p>
             <p className="text-xs text-muted">会话更新：{accountDate(session.updatedAt)} · 到期：{accountDate(session.expiresAt)}</p>
-          </article>)}
+          </article>; })}
         </div>}
         {current.total > current.limit && <div className="flex flex-wrap items-center justify-between gap-3 text-sm">
           <span className="text-muted">共 {current.total} 条 · 第 {Math.floor(offset / current.limit) + 1} / {Math.ceil(current.total / current.limit)} 页</span>

@@ -85,3 +85,20 @@ it('兼容框架 ISO 日期与管理员写入的毫秒日期，过期 ISO 会话
   expect(detail.sessions[0].expiresAt).toBe(Date.parse('2030-01-01T00:00:00Z'));
   expect(detail.sessions.some((session) => session.userAgent === 'expired-iso')).toBe(false);
 });
+it('观看和搜索历史按实际行为时间倒序，删除旧记录不会使它排到最近观看之前', () => {
+  for (const collection of ['history', 'search']) {
+    put('a', collection, 'older-deleted', { timestamp: 10 }, 1, 900);
+    put('a', collection, 'latest', { timestamp: 200 }, 0, 300);
+    put('a', collection, 'middle', { timestamp: 100 }, 0, 800);
+    expect(readAccountDetail(database, 'a', collection as 'history' | 'search', 0).records.map((row) => row.key))
+      .toEqual(['latest', 'middle', 'older-deleted']);
+  }
+});
+it('实际行为时间用于全量分页排序，缺失原值的旧墓碑回退服务器更新时间', () => {
+  for (let i = 0; i < 35; i++) put('a', 'search', `key-${i}`, { timestamp: 1000 - i }, 0, 100 + i);
+  put('a', 'search', 'old-tombstone', null, 1, 1);
+  const first = readAccountDetail(database, 'a', 'search', 0);
+  const second = readAccountDetail(database, 'a', 'search', 30);
+  expect(first.records[0].key).toBe('key-0');
+  expect(second.records.map((row) => row.key)).toEqual(['key-30', 'key-31', 'key-32', 'key-33', 'key-34', 'old-tombstone']);
+});

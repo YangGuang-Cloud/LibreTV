@@ -42,8 +42,13 @@ export function readAccountDetail(database: Database.Database, userId: string, s
           return { ...session, createdAt: dateMillis(session.createdAt), updatedAt: dateMillis(session.updatedAt), expiresAt: dateMillis(session.expiresAt) };
         });
     } else {
+      // Deleting a row changes its server timestamp, but must not promote an
+      // old viewing/search event above genuinely recent activity.
+      const activityOrder = section === 'history' || section === 'search'
+        ? "CASE WHEN json_type(value, '$.timestamp') IN ('integer','real') THEN json_extract(value, '$.timestamp') ELSE updatedAt END"
+        : 'updatedAt';
       const rows = database.prepare(`SELECT key, value, deleted, deletedAt, updatedAt FROM user_sync_data
-        WHERE userId=? AND collection=? ORDER BY updatedAt DESC, key LIMIT ? OFFSET ?`).all(userId, section, ACCOUNT_DETAIL_PAGE_SIZE, offset) as { key: string; value: string | null; deleted: number; deletedAt: number | null; updatedAt: number }[];
+        WHERE userId=? AND collection=? ORDER BY ${activityOrder} DESC, updatedAt DESC, key LIMIT ? OFFSET ?`).all(userId, section, ACCOUNT_DETAIL_PAGE_SIZE, offset) as { key: string; value: string | null; deleted: number; deletedAt: number | null; updatedAt: number }[];
       const lookup = database.prepare('SELECT value FROM user_sync_data WHERE userId=? AND collection=? AND key=?');
       for (const entry of rows) {
         const value: unknown = entry.value === null ? null : JSON.parse(entry.value);

@@ -13,6 +13,7 @@ import { usePathname } from 'next/navigation';
 import { setClientDataScope, clearObsoletePersonalStorage, getHistory, getSearchHistory } from '@/lib/db';
 import type { AuthStatusResponse } from '@/lib/types';
 import { startAccountData, stopAccountData } from '@/lib/account-data';
+import { startViewerActivity, stopViewerActivity } from '@/lib/viewer-activity';
 import { AccountDataNotice } from './account-data-notice';
 
 export function Providers({ children }: { children: ReactNode }) {
@@ -53,11 +54,12 @@ function ViewerProviders({ children }: { children: ReactNode }) {
         });
       }
       if (cancelled) return;
+      if (status.authMode === 'account' && status.user) startViewerActivity(status.user.id);
       void hydrateLiveProbeResults();
       if (!cancelled) setReady(true);
       await applyEnvPresets(status);
     })().catch(() => { if (!cancelled) setInitialError(true); });
-    return () => { cancelled = true; stopAccountData(); };
+    return () => { cancelled = true; stopViewerActivity(); stopAccountData(); };
   }, [queryClient]);
 
   if (!ready) return <main className="min-h-screen flex items-center justify-center p-6"><div className="text-center space-y-4"><p className="text-muted">{initialError ? '无法连接服务，请检查网络后重试。' : '正在连接服务…'}</p>{initialError && <button className="btn-primary" onClick={() => window.location.reload()}>重新连接</button>}</div></main>;

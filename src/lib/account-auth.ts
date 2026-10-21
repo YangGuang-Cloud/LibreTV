@@ -7,6 +7,8 @@ import { admin, username } from 'better-auth/plugins';
 import { accountConfigured } from './account-mode';
 import { initializePasswordVault, passwordVaultKey, captureManagedPassword } from './account-password-vault';
 import { initializeSyncSchema } from './sync-schema';
+import { initializeAccountActivity } from './account-activity';
+import { initializeAccountLoginState, recordAccountLogin } from './account-login-state';
 
 function createAccountAuth() {
   if (!accountConfigured()) throw new Error('请配置 BETTER_AUTH_URL 和至少 32 字符的 BETTER_AUTH_SECRET');
@@ -29,6 +31,11 @@ function createAccountAuth() {
     session: { expiresIn: 30 * 24 * 60 * 60, updateAge: 24 * 60 * 60, cookieCache: { enabled: false } },
     rateLimit: { enabled: true, window: 60, max: 60, customRules: { '/sign-in/username': { window: 600, max: 10 } } },
     plugins: [username({ minUsernameLength: 3, maxUsernameLength: 32 }), admin()],
+    databaseHooks: {
+      session: { create: { after: async (session, context) => {
+        if (context?.path === '/sign-in/username') recordAccountLogin(database, session.userId, session.createdAt.getTime());
+      } } },
+    },
   });
   return { auth, database };
 }
@@ -45,6 +52,8 @@ export function getAccountAuth(): Promise<AccountAuth> {
         await runMigrations();
         initializeSyncSchema(state.database);
         initializePasswordVault(state.database);
+        initializeAccountLoginState(state.database);
+        initializeAccountActivity(state.database);
         return state;
       } catch (error) { state.database.close(); throw error; }
     })().catch((error) => { globalAccounts.lunaAccounts = undefined; throw error; });

@@ -1,3 +1,4 @@
+import type { AccountActivity } from './account-activity';
 import type { SyncCollection } from './sync-model';
 
 export interface AdminAccountUser {
@@ -17,7 +18,8 @@ export interface AdminAccountDetail {
   user: AdminAccountUser;
   counts: Record<SyncCollection, { total: number; deleted: number }>;
   activeSessions: number;
-  lastDataAt: number | null;
+  lastLoginAt: number | null;
+  activity: AccountActivity;
   section: AdminAccountSection;
   records: AdminAccountRecord[];
   sessions: AdminAccountSession[];

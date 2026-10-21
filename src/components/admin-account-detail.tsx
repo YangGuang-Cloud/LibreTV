@@ -25,6 +25,7 @@ const object = (value: unknown): Record<string, unknown> => value && typeof valu
 const text = (value: unknown, fallback = '—') => typeof value === 'string' && value ? value : fallback;
 const number = (value: unknown) => typeof value === 'number' && Number.isFinite(value) ? value : 0;
 const time = (value: unknown) => { const seconds = Math.max(0, Math.floor(number(value))); return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`; };
+const watchDuration = (seconds: number) => seconds >= 3600 ? `${Math.floor(seconds / 3600)} 小时 ${Math.floor(seconds % 3600 / 60)} 分钟` : seconds >= 60 ? `${Math.floor(seconds / 60)} 分钟` : `${seconds} 秒`;
 const episode = (value: unknown) => `第 ${number(value) + 1} 集`;
 
 function RecordContent({ row, section }: { row: AdminAccountRecord; section: AdminAccountSection }) {
@@ -85,6 +86,10 @@ export function AdminAccountDetailView({ userId, revision, onSessionExpired, act
     })();
     return () => controller.abort();
   }, [userId, section, offset, revision, reload, onSessionExpired]);
+  useEffect(() => {
+    const timer = setInterval(() => { if (document.visibilityState === 'visible') setReload((value) => value + 1); }, 20_000);
+    return () => clearInterval(timer);
+  }, []);
   const current = detail?.section === section && detail.offset === offset ? detail : null;
   return <div className="flex flex-col gap-5">
     {detail && <div className="card p-5 space-y-5">
@@ -95,9 +100,16 @@ export function AdminAccountDetailView({ userId, revision, onSessionExpired, act
       <dl className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
         <div><dt className="text-muted">创建时间</dt><dd className="mt-1">{accountDate(detail.user.createdAt)}</dd></div>
         <div><dt className="text-muted">账号更新时间</dt><dd className="mt-1">{accountDate(detail.user.updatedAt)}</dd></div>
-        <div><dt className="text-muted">最近数据变更</dt><dd className="mt-1">{accountDate(detail.lastDataAt)}</dd></div>
+        <div><dt className="text-muted">最后登录时间</dt><dd className="mt-1">{detail.lastLoginAt === null ? '暂无记录' : accountDate(detail.lastLoginAt)}</dd></div>
         <div><dt className="text-muted">有效登录会话</dt><dd className="mt-1">{detail.activeSessions}</dd></div>
       </dl>
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 rounded-lg bg-chip p-4 text-sm">
+        <div><p className="text-muted">当前状态</p><p className={`mt-1 font-medium ${detail.activity.status === 'watching' || detail.activity.status === 'online' ? 'text-accent' : ''}`}>{{ watching: '正在观看', online: '在线', offline: '离线', unknown: '暂无状态' }[detail.activity.status]}</p></div>
+        <div><p className="text-muted">最后活跃</p><p className="mt-1">{accountDate(detail.activity.lastActiveAt)}</p></div>
+        <div><p className="text-muted">今日观看</p><p className="mt-1 font-medium">{watchDuration(detail.activity.todaySeconds)}</p></div>
+        <div><p className="text-muted">累计观看</p><p className="mt-1 font-medium">{watchDuration(detail.activity.totalSeconds)}</p></div>
+      </div>
+      <p className="text-xs text-muted">状态根据近期上报判断，可能有短暂延迟。时长按实际播放时间估算，倍速按经过的时间计算，同账号同时观看不重复累计；今日按北京时间统计。{detail.activity.trackingSince ? `统计开始于 ${accountDate(detail.activity.trackingSince)}。` : '尚未收到新版客户端的活动上报，无法补算以往时长。'}</p>
       <details className="text-xs text-muted"><summary className="cursor-pointer">账号编号</summary><p className="mt-2 break-all">{detail.user.id}</p></details>
       {actions}
     </div>}

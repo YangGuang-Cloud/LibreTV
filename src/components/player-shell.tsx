@@ -1,5 +1,7 @@
 'use client';
 
+import { trackVideoActivity } from '@/lib/viewer-activity';
+
 import { useEffect, useRef, useState } from 'react';
 import Artplayer from 'artplayer';
 import Hls, { type HlsConfig } from 'hls.js';
@@ -301,6 +303,7 @@ export function PlayerShell({
       },
     });
     artRef.current = art;
+    const stopActivity = trackVideoActivity(art.video);
     art.on('video:loadedmetadata', () => {
       // ArtPlayer 运行时支持 title 选项（类型定义未覆盖），用于界面标题展示
       try {
@@ -465,6 +468,7 @@ export function PlayerShell({
       hlsRef.current = null;
       recoveryRef.current?.dispose();
       getVideoPrefetcher().stop();
+      stopActivity();
       art.destroy();
       artRef.current = null;
     };

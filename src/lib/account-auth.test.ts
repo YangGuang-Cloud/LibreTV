@@ -12,6 +12,7 @@ import { guardRequest } from './api-guard';
 import { ADMIN_SESSION_COOKIE, signAdminSession } from './admin-auth';
 import { SESSION_COOKIE, signSession, signMediaURL, verifyMediaURL } from './auth';
 import { getAccountAuth } from './account-auth';
+import { POST as activity } from '@/app/api/user/activity/route';
 import { POST as syncData } from '@/app/api/user/sync/route';
 
 let directory: string;
@@ -216,6 +217,65 @@ describe.sequential('真实 SQLite 账号闭环', () => {
     finally { database.exec('DROP TRIGGER fail_vault'); }
     expect((database.prepare('SELECT password FROM account WHERE userId=?').get(userId) as { password: string }).password).toBe(oldHash);
     expect((await (await revealPassword(request('/api/admin/users/password', 'POST', { userId }, adminCookie))).json()).password).toBe('reset-visible-password');
+  });
+
+  it('最后登录时间只由成功登录更新，失败登录、读取会话和退出不会改写或清除', async () => {
+    const username = 'login_time_test';
+    expect((await createUser(request('/api/admin/users', 'POST', { username, password }, adminCookie))).status).toBe(200);
+    const { database } = await getAccountAuth();
+    const { id } = database.prepare('SELECT id FROM user WHERE username=?').get(username) as { id: string };
+    const detailRoute = '/api/admin/users/detail?userId=' + encodeURIComponent(id);
+    const lastLogin = async () => (await (await accountDetail(request(detailRoute, 'GET', undefined, adminCookie))).json()).lastLoginAt;
+    expect(await lastLogin()).toBeNull();
+    const signInAccount = (pass: string) => {
+      const input = request('/api/auth', 'POST', { username, password: pass });
+      input.headers.set('x-forwarded-for', '192.0.2.195');
+      return login(input);
+    };
+    expect((await signInAccount('wrong-password')).ok).toBe(false);
+    expect(await lastLogin()).toBeNull();
+    const response = await signInAccount(password);
+    expect(response.status).toBe(200);
+    const loggedAt = await lastLogin();
+    expect(loggedAt).toBeGreaterThan(Date.now() - 10000);
+    const cookie = cookies(response);
+    expect((await status(request('/api/status', 'GET', undefined, cookie))).status).toBe(200);
+    expect(await lastLogin()).toBe(loggedAt);
+    expect((await logout(request('/api/auth', 'DELETE', undefined, cookie))).status).toBe(200);
+    expect(await lastLogin()).toBe(loggedAt);
+    expect(database.prepare('SELECT id FROM session WHERE userId=?').all(id)).toHaveLength(0);
+    database.prepare('UPDATE account_login_state SET lastLoginAt=1 WHERE userId=?').run(id);
+    expect((await signInAccount(password)).status).toBe(200);
+    expect(await lastLogin()).toBeGreaterThan(1);
+  });
+
+  it('活动上报需要有效账号会话且拒绝跨站、冒用账号，停用后离线并保留时长', async () => {
+    const username = 'activity_test';
+    expect((await createUser(request('/api/admin/users', 'POST', { username, password }, adminCookie))).status).toBe(200);
+    const { database } = await getAccountAuth();
+    const { id } = database.prepare('SELECT id FROM user WHERE username=?').get(username) as { id: string };
+    const loginRequest = request('/api/auth', 'POST', { username, password });
+    loginRequest.headers.set('x-forwarded-for', '192.0.2.196');
+    const cookie = cookies(await login(loginRequest));
+    const body = { accountId: id, producerId: 'producer-api-123456', sequence: 1, watchedMs: 0, state: 'online' };
+    expect((await activity(request('/api/user/activity', 'POST', body))).status).toBe(401);
+    expect((await activity(request('/api/user/activity', 'POST', body, cookie, 'https://other.example'))).status).toBe(403);
+    expect((await activity(request('/api/user/activity', 'POST', { ...body, accountId: 'other' }, cookie))).status).toBe(400);
+    expect((await activity(request('/api/user/activity', 'POST', { ...body, producerId: 'bad' }, cookie))).status).toBe(400);
+    const response = await activity(request('/api/user/activity', 'POST', body, cookie));
+    expect(response.status).toBe(200);
+    expect(response.headers.get('cache-control')).toContain('no-store');
+    database.prepare('UPDATE account_activity_producer SET receivedAt=? WHERE userId=?').run(Date.now() - 20000, id);
+    expect((await activity(request('/api/user/activity', 'POST', { ...body, sequence: 2, watchedMs: 20000, state: 'watching' }, cookie))).status).toBe(200);
+    const detail = async () => (await (await accountDetail(request('/api/admin/users/detail?userId=' + id, 'GET', undefined, adminCookie))).json()).activity;
+    const watching = await detail();
+    expect(watching.status).toBe('watching');
+    expect(watching.totalSeconds).toBeGreaterThanOrEqual(19);
+    expect((await updateUser(request('/api/admin/users', 'PATCH', { userId: id, action: 'disable' }, adminCookie))).status).toBe(200);
+    expect((await activity(request('/api/user/activity', 'POST', body, cookie))).status).toBe(401);
+    const offline = await detail();
+    expect(offline.status).toBe('offline');
+    expect(offline.totalSeconds).toBe(watching.totalSeconds);
   });
 
 });

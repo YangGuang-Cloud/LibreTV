@@ -1,5 +1,7 @@
 'use client';
 
+import { stopViewerActivity } from '@/lib/viewer-activity';
+
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { api, onUnauthorized, STATUS_QUERY_KEY } from '@/lib/client-api';
@@ -124,7 +126,7 @@ export function AuthProvider({ children, initialStatus }: { children: ReactNode;
     try {
       if (accountMode) await waitForAccountWrites();
       await api.logout();
-      if (accountMode) { stopAccountData(); notifyAccountChange(); window.location.reload(); return; }
+      if (accountMode) { stopViewerActivity(); stopAccountData(); notifyAccountChange(); window.location.reload(); return; }
       setVerified(false);
       toast('已退出登录', 'info');
     } catch {

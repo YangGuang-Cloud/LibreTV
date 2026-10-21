@@ -1,4 +1,5 @@
 import type Database from 'better-sqlite3';
+import { readAccountActivity } from './account-activity';
 import { AccountInputError } from './account-users';
 import { SYNC_COLLECTIONS, type SyncCollection } from './sync-model';
 import type { AdminAccountDetail, AdminAccountSection, AdminAccountUser, AdminAccountRecord, AdminAccountSession } from './account-admin-model';
@@ -31,7 +32,7 @@ export function readAccountDetail(database: Database.Database, userId: string, s
     const counts = Object.fromEntries(SYNC_COLLECTIONS.map((key) => [key, { total: 0, deleted: 0 }])) as AdminAccountDetail['counts'];
     const grouped = database.prepare('SELECT collection, COUNT(*) AS total, SUM(deleted) AS deleted FROM user_sync_data WHERE userId=? GROUP BY collection').all(userId) as { collection: SyncCollection; total: number; deleted: number }[];
     for (const group of grouped) if (group.collection in counts) counts[group.collection] = { total: group.total, deleted: group.deleted };
-    const { latest } = database.prepare('SELECT MAX(updatedAt) AS latest FROM user_sync_data WHERE userId=?').get(userId) as { latest: number | null };
+    const login = database.prepare('SELECT lastLoginAt FROM account_login_state WHERE userId=?').get(userId) as { lastLoginAt: number } | undefined;
     const { total: activeSessions } = database.prepare(`SELECT COUNT(*) AS total FROM session WHERE userId=? AND ${sqlDate('expiresAt')}>?`).get(userId, now) as { total: number };
     const records: AdminAccountRecord[] = [];
     let sessions: AdminAccountSession[] = [];
@@ -64,7 +65,7 @@ export function readAccountDetail(database: Database.Database, userId: string, s
         records.push(record);
       }
     }
-    return { user: { ...row, createdAt: dateMillis(row.createdAt), updatedAt: dateMillis(row.updatedAt), passwordAvailable: row.passwordAvailable === 1 }, counts, activeSessions, lastDataAt: latest,
+    return { user: { ...row, createdAt: dateMillis(row.createdAt), updatedAt: dateMillis(row.updatedAt), passwordAvailable: row.passwordAvailable === 1 }, counts, activeSessions, activity: readAccountActivity(database, userId, now), lastLoginAt: login?.lastLoginAt ?? null,
       section, records, sessions, total: section === 'sessions' ? activeSessions : counts[section].total, offset, limit: ACCOUNT_DETAIL_PAGE_SIZE };
   })();
 }

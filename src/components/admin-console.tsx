@@ -6,6 +6,7 @@ import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { AdminSourceManager } from './admin-source-manager';
 import { AdminEpisodeManager } from './admin-episode-manager';
 import { AdminRecommendationManager } from './admin-recommendation-manager';
+import { AdminOverviewPanel } from './admin-overview';
 import { AdminUserManager } from './admin-user-manager';
 
 interface AdminStatus {
@@ -24,7 +25,7 @@ export function AdminConsole() {
   const router = useRouter();
   const params = useSearchParams();
   const tab = params.get('tab');
-  const section = tab === 'sources' || tab === 'episodes' || tab === 'users' ? tab : 'recommendations';
+  const section = tab === 'sources' || tab === 'episodes' || tab === 'users' || tab === 'recommendations' ? tab : 'overview';
   const setSection = (next: string) => router.push(`/admin?tab=${next}`);
   const sessionExpired = useCallback(() => setStatus((current) => current ? { ...current, verified: false } : current), []);
 
@@ -87,12 +88,13 @@ export function AdminConsole() {
         </form>}
         {status?.verified && <>
           <nav className="flex flex-wrap gap-3 mb-7" aria-label="后台功能">
-            <button className={section === 'recommendations' ? 'btn-primary' : 'btn-ghost'} onClick={() => setSection('recommendations')}>首页</button>
+            <button className={section === 'overview' ? 'btn-primary' : 'btn-ghost'} onClick={() => setSection('overview')}>总览</button>
+            <button className={section === 'recommendations' ? 'btn-primary' : 'btn-ghost'} onClick={() => setSection('recommendations')}>首页推荐</button>
             <button className={section === 'sources' ? 'btn-primary' : 'btn-ghost'} onClick={() => setSection('sources')}>点播源</button>
             <button className={section === 'episodes' ? 'btn-primary' : 'btn-ghost'} onClick={() => setSection('episodes')}>分集资料</button>
             <button className={section === 'users' ? 'btn-primary' : 'btn-ghost'} onClick={() => setSection('users')}>账号管理</button>
           </nav>
-          {section === 'recommendations' ? <AdminRecommendationManager onSessionExpired={sessionExpired} /> : section === 'users' ? (status.accountMode && status.accountConfigured ? <AdminUserManager onSessionExpired={sessionExpired} /> : <div className="card p-6"><h2 className="font-semibold">账号模式尚未开启</h2><p className="mt-2 text-sm text-muted">在服务器配置 AUTH_MODE=account、BETTER_AUTH_URL 和 BETTER_AUTH_SECRET，然后重启服务。开启后可在此创建账号，不开放注册。</p></div>) : status.sourceMode !== 'server' ? <div className="card p-6"><h2 className="font-semibold">请开启服务器源管理模式</h2><p className="mt-2 text-sm text-muted">将服务器环境配置中的 SOURCE_MODE 设为 server，然后重启服务。</p></div> : section === 'sources' ? <AdminSourceManager onSessionExpired={sessionExpired} /> : <AdminEpisodeManager onSessionExpired={sessionExpired} />}
+          {section === 'overview' ? <AdminOverviewPanel onSessionExpired={sessionExpired} /> : section === 'recommendations' ? <AdminRecommendationManager onSessionExpired={sessionExpired} /> : section === 'users' ? (status.accountMode && status.accountConfigured ? <AdminUserManager onSessionExpired={sessionExpired} /> : <div className="card p-6"><h2 className="font-semibold">账号模式尚未开启</h2><p className="mt-2 text-sm text-muted">在服务器配置 AUTH_MODE=account、BETTER_AUTH_URL 和 BETTER_AUTH_SECRET，然后重启服务。开启后可在此创建账号，不开放注册。</p></div>) : status.sourceMode !== 'server' ? <div className="card p-6"><h2 className="font-semibold">请开启服务器源管理模式</h2><p className="mt-2 text-sm text-muted">将服务器环境配置中的 SOURCE_MODE 设为 server，然后重启服务。</p></div> : section === 'sources' ? <AdminSourceManager onSessionExpired={sessionExpired} /> : <AdminEpisodeManager onSessionExpired={sessionExpired} />}
         </>}
       </main>
     </div>

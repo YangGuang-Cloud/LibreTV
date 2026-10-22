@@ -1,10 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DELETE, GET, POST } from './route';
-import { ADMIN_SESSION_COOKIE, adminSessionFromRequest, signAdminSession, verifyAdminSession } from '@/lib/admin-auth';
+import { ADMIN_SESSION_COOKIE, ADMIN_REMEMBER_MS, adminSessionFromRequest, signAdminSession, verifyAdminSession } from '@/lib/admin-auth';
 import { clearRateLimit, SESSION_COOKIE, signSession, verifySession } from '@/lib/auth';
 import { guardAdminRequest } from '@/lib/admin-guard';
 
-beforeEach(() => { vi.stubEnv('PASSWORD', 'viewer'); vi.stubEnv('ADMIN_PASSWORD', 'admin'); clearRateLimit('admin:127.0.0.2'); });
+beforeEach(() => { vi.stubEnv('ADMIN_USERNAME', ''); vi.stubEnv('BETTER_AUTH_URL', ''); vi.stubEnv('PASSWORD', 'viewer'); vi.stubEnv('ADMIN_PASSWORD', 'admin'); clearRateLimit('admin:127.0.0.2'); });
 afterEach(() => { vi.unstubAllEnvs(); vi.useRealTimers(); });
 function req(body: unknown, extraHeaders: Record<string, string> = {}) {
   return new Request('https://local.test/api/admin/auth', {
@@ -62,4 +62,73 @@ describe('独立后台登录', () => {
     expect((await POST(req({ password: 'admin' }))).status).toBe(503);
     expect((await (await GET(new Request('https://local.test'))).json()).configured).toBe(false);
   });
+});
+
+it('默认记住管理员，返回真实身份并在 8 小时后仍有效，篡改记住标记无效', async () => {
+  vi.useFakeTimers();
+  const response = await POST(req({ username: 'admin', password: 'admin' }));
+  const body = await response.json();
+  expect(body).toMatchObject({ user: { username: 'admin', name: '管理员' }, remember: true });
+  expect(body.expiresAt - Date.now()).toBe(ADMIN_REMEMBER_MS);
+  expect(response.headers.get('set-cookie')).toContain('Max-Age=2592000');
+  const cookie = response.headers.get('set-cookie')!.split(';')[0];
+  const token = decodeURIComponent(cookie.slice(cookie.indexOf('=') + 1));
+  expect(verifyAdminSession(token.replace('r.', ''))).toBe(false);
+  vi.advanceTimersByTime(9 * 3600_000);
+  expect(verifyAdminSession(token)).toBe(true);
+  const status = await (await GET(new Request('https://local.test/api/admin/auth', { headers: { cookie } }))).json();
+  expect(status).toMatchObject({ verified: true, user: body.user, remember: true });
+  vi.advanceTimersByTime(ADMIN_REMEMBER_MS);
+  expect(verifyAdminSession(token)).toBe(false);
+});
+it('未勾选保持登录时使用浏览器会话 Cookie，最多 8 小时且不自动续期', async () => {
+  vi.useFakeTimers();
+  const response = await POST(req({ username: 'admin', password: 'admin', remember: false }));
+  const cookie = response.headers.get('set-cookie')!;
+  expect(cookie).not.toContain('Max-Age=');
+  expect(cookie).not.toContain('Expires=');
+  const token = cookie.split(';')[0].split('=')[1];
+  vi.advanceTimersByTime(2 * 86400_000);
+  const state = await GET(new Request('https://local.test/api/admin/auth', { headers: { cookie: cookie.split(';')[0] } }));
+  expect(state.headers.get('set-cookie')).toBeNull();
+  expect((await state.json()).verified).toBe(false);
+  expect(verifyAdminSession(token)).toBe(false);
+});
+it('记住登录超过一天后打开后台续期，过期会话不能续期，匿名不返回身份', async () => {
+  vi.useFakeTimers();
+  const { token } = signAdminSession(true);
+  const request = new Request('https://local.test/api/admin/auth', { headers: { cookie: `${ADMIN_SESSION_COOKIE}=${token}` } });
+  expect((await GET(request)).headers.get('set-cookie')).toBeNull();
+  vi.advanceTimersByTime(2 * 86400_000);
+  const renewed = await GET(request);
+  expect(renewed.headers.get('set-cookie')).toContain('Max-Age=2592000');
+  expect((await renewed.json()).expiresAt).toBe(Date.now() + ADMIN_REMEMBER_MS);
+  vi.advanceTimersByTime(ADMIN_REMEMBER_MS);
+  const expired = await GET(request);
+  expect(expired.headers.get('set-cookie')).toBeNull();
+  expect(await expired.json()).toMatchObject({ verified: false, user: null, expiresAt: null });
+});
+it('校验管理员账号，支持自定义账号名，账号名或密码改变即令旧会话失效', async () => {
+  expect((await POST(req({ username: 'other', password: 'admin' }))).status).toBe(401);
+  vi.stubEnv('ADMIN_USERNAME', 'owner');
+  expect((await POST(req({ username: 'admin', password: 'admin' }))).status).toBe(401);
+  const response = await POST(req({ username: 'Owner', password: 'admin' }));
+  expect(response.status).toBe(200);
+  expect((await response.json()).user.username).toBe('owner');
+  const token = decodeURIComponent(response.headers.get('set-cookie')!.split(';')[0].split('=')[1]);
+  expect(verifyAdminSession(token)).toBe(true);
+  vi.stubEnv('ADMIN_USERNAME', 'another');
+  expect(verifyAdminSession(token)).toBe(false);
+  vi.stubEnv('ADMIN_USERNAME', 'owner'); vi.stubEnv('ADMIN_PASSWORD', 'updated');
+  expect(verifyAdminSession(token)).toBe(false);
+});
+it('拒绝畸形账号、记住选项和跨站登录退出，支持配置的反向代理站点地址', async () => {
+  expect((await POST(req({ username: {}, password: 'admin' }))).status).toBe(400);
+  expect((await POST(req({ password: 'admin', remember: 'true' }))).status).toBe(400);
+  expect((await POST(req({ password: 'admin' }, { origin: 'https://foreign.test' }))).status).toBe(403);
+  expect((await DELETE(new Request('https://local.test/api/admin/auth', { method: 'DELETE', headers: { 'sec-fetch-site': 'cross-site' } }))).status).toBe(403);
+  expect((await POST(req({ password: 'admin' }, { origin: 'https://proxy.test', 'x-forwarded-proto': 'https', 'x-forwarded-host': 'proxy.test' }))).status).toBe(200);
+  vi.stubEnv('BETTER_AUTH_URL', 'https://public.test'); vi.stubEnv('BETTER_AUTH_SECRET', 'test-secret-with-at-least-32-characters');
+  const response = await POST(req({ password: 'admin' }, { origin: 'https://public.test' }));
+  expect(response.status).toBe(200);
 });

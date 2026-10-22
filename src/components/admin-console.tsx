@@ -6,10 +6,14 @@ import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { AdminSourceManager } from './admin-source-manager';
 import { AdminEpisodeManager } from './admin-episode-manager';
 import { AdminRecommendationManager } from './admin-recommendation-manager';
+import { AdminAccountMenu, type AdminIdentity } from './admin-account-menu';
 import { AdminOverviewPanel } from './admin-overview';
 import { AdminUserManager } from './admin-user-manager';
 
 interface AdminStatus {
+  user: AdminIdentity | null;
+  remember: boolean;
+  expiresAt: number | null;
   configured: boolean;
   verified: boolean;
   sourceMode: 'client' | 'server';
@@ -19,6 +23,8 @@ interface AdminStatus {
 
 export function AdminConsole() {
   const [status, setStatus] = useState<AdminStatus | null>(null);
+  const [username, setUsername] = useState('admin');
+  const [remember, setRemember] = useState(true);
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -27,14 +33,14 @@ export function AdminConsole() {
   const tab = params.get('tab');
   const section = tab === 'sources' || tab === 'episodes' || tab === 'users' || tab === 'recommendations' ? tab : 'overview';
   const setSection = (next: string) => router.push(`/admin?tab=${next}`);
-  const sessionExpired = useCallback(() => setStatus((current) => current ? { ...current, verified: false } : current), []);
+  const sessionExpired = useCallback(() => setStatus((current) => current ? { ...current, verified: false, user: null, expiresAt: null } : current), []);
 
   useEffect(() => {
     let cancelled = false;
     void fetch('/api/admin/auth', { cache: 'no-store' }).then(async (res) => {
       if (!res.ok) throw new Error('后台状态读取失败');
       return res.json() as Promise<AdminStatus>;
-    }).then((data) => { if (!cancelled) setStatus(data); })
+    }).then((data) => { if (!cancelled) { setStatus(data); if (data.user) setUsername(data.user.username); } })
       .catch(() => { if (!cancelled) setError('无法连接后台，请刷新重试。'); });
     return () => { cancelled = true; };
   }, []);
@@ -45,12 +51,12 @@ export function AdminConsole() {
     setError('');
     try {
       const res = await fetch('/api/admin/auth', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password }),
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username, password, remember }),
       });
       const body = await res.json();
       if (!res.ok) throw new Error(body.error || '登录失败');
       setPassword('');
-      setStatus((current) => current ? { ...current, verified: true } : current);
+      setStatus((current) => current ? { ...current, verified: true, user: body.user, remember: body.remember, expiresAt: body.expiresAt } : current);
     } catch (cause) { setError(cause instanceof Error ? cause.message : '登录失败'); }
     finally { setBusy(false); }
   };
@@ -61,7 +67,7 @@ export function AdminConsole() {
     try {
       const res = await fetch('/api/admin/auth', { method: 'DELETE' });
       if (!res.ok) throw new Error('退出失败，请重试');
-      setStatus((current) => current ? { ...current, verified: false } : current);
+      setStatus((current) => current ? { ...current, verified: false, user: null, expiresAt: null } : current);
     } catch (cause) { setError(cause instanceof Error ? cause.message : '退出失败'); }
     finally { setBusy(false); }
   };
@@ -73,7 +79,7 @@ export function AdminConsole() {
           <div><p className="text-xs text-accent font-medium tracking-widest">Luna12TV</p><h1 className="text-xl font-semibold">管理后台</h1></div>
           <div className="flex items-center gap-3 text-sm">
             <Link href="/" className="btn-ghost">打开观看网页</Link>
-            {status?.verified && <button className="btn-ghost" disabled={busy} onClick={() => void logout()}>退出后台</button>}
+            {status?.verified && status.user && <AdminAccountMenu user={status.user} remember={status.remember} expiresAt={status.expiresAt} busy={busy} onLogout={() => void logout()} />}
           </div>
         </div>
       </header>
@@ -82,9 +88,11 @@ export function AdminConsole() {
         {error && <p role="alert" className="mb-4 rounded-lg bg-danger/10 p-3 text-sm text-danger">{error}</p>}
         {status && !status.configured && <div className="card p-6 max-w-lg mx-auto"><h2 className="font-semibold">后台尚未配置</h2><p className="text-sm text-muted mt-2">请在服务器环境配置中设置 ADMIN_PASSWORD，然后重启服务。</p></div>}
         {status?.configured && !status.verified && <form onSubmit={(event) => void login(event)} className="card max-w-sm mx-auto p-6 space-y-5">
-          <div><h2 className="text-lg font-semibold">管理员登录</h2><p className="text-sm text-muted mt-2">输入管理员密码，维护所有客户端共用的资源。</p></div>
-          <label className="block text-sm">管理员密码<input autoFocus type="password" autoComplete="off" required maxLength={1024} className="input w-full mt-2" value={password} onChange={(event) => setPassword(event.target.value)} /></label>
-          <button type="submit" className="btn-primary w-full" disabled={busy || !password}>{busy ? '登录中…' : '登录后台'}</button>
+          <div><h2 className="text-lg font-semibold">管理员登录</h2><p className="text-sm text-muted mt-2">登录管理员账号，管理站点与用户。</p></div>
+          <label className="block text-sm">管理员账号<input name="username" autoComplete="username" required maxLength={128} className="input w-full mt-2" value={username} onChange={(event) => setUsername(event.target.value)} /></label>
+          <label className="block text-sm">管理员密码<input name="password" autoFocus type="password" autoComplete="current-password" required maxLength={1024} className="input w-full mt-2" value={password} onChange={(event) => setPassword(event.target.value)} /></label>
+          <label className="flex items-center gap-2 text-sm text-muted cursor-pointer"><input type="checkbox" checked={remember} onChange={(event) => setRemember(event.target.checked)} className="h-4 w-4 accent-accent" />保持登录 30 天</label>
+          <button type="submit" className="btn-primary w-full" disabled={busy || !username.trim() || !password}>{busy ? '登录中…' : '登录后台'}</button>
         </form>}
         {status?.verified && <>
           <nav className="flex flex-wrap gap-3 mb-7" aria-label="后台功能">

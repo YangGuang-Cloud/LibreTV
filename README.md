@@ -57,6 +57,7 @@ PASSWORD=your-password npm start   # 监听 8080
 | `BETTER_AUTH_URL` | 账号模式必填 | 站点访问源地址，例如 `https://tv.example.com`，不含路径；本地可用 `http://localhost:8080` |
 | `BETTER_AUTH_SECRET` | 账号模式必填 | 至少 32 字符的随机密钥，可用 `openssl rand -hex 32` 生成；更改会使会话失效 |
 | `SOURCE_MODE` | 否 | `client`（默认）保留浏览器自配源；`server` 由管理员统一管理点播源，搜索和详情只采用服务器配置 |
+| `ADMIN_USERNAME` | 否 | 独立管理员账号名，默认 `admin`；与个人观看账号分开 |
 | `ADMIN_PASSWORD` | 后台管理必填 | 独立管理员密码，用于修改共享点播源；与观看密码分开设置，不下发到客户端 |
 | `SERVER_DATA_DIR` | 否 | 服务器点播源持久化目录，默认 `.data`；当前服务器使用 `/var/lib/libretv`，更新应用时须保留 |
 | `PROXY_SECRET` | 否 | 会话/代理签名密钥；不设置时从 PASSWORD 派生（多实例部署建议显式设置） |
@@ -132,7 +133,7 @@ ADMIN_PASSWORD=your-separate-admin-password
 DEFAULT_SOURCES=[{"name":"示例源","url":"https://example.com/api.php/provide/vod"}]
 ```
 
-重启后，普通网页 `/` 作为观看客户端，服务器模式下设置中不再显示源管理。管理员进入独立后台 `/admin`，使用 `ADMIN_PASSWORD` 登录后添加、编辑和保存点播源。后台登录无需先登录观看网页；两者使用独立 Cookie，观看密码不能取得管理权限，退出后台不影响观看登录。后台会话有效期为 8 小时。
+重启后，普通网页 `/` 作为观看客户端，服务器模式下设置中不再显示源管理。管理员进入独立后台 `/admin`，使用 `ADMIN_PASSWORD` 登录后添加、编辑和保存点播源。后台登录无需先登录观看网页；两者使用独立 Cookie，观看密码不能取得管理权限，退出后台不影响观看登录。后台默认账号为 `admin`（可通过 `ADMIN_USERNAME` 修改），密码沿用 `ADMIN_PASSWORD`。右上角账号菜单显示当前管理员，可退出账号。默认勾选「保持登录 30 天」，使用持久化 HttpOnly Cookie；超过一天后再次打开后台会续期为 30 天，不在浏览器存储密码。不勾选时为浏览器会话 Cookie，最多 8 小时；浏览器的恢复会话功能可能保留该 Cookie。已存在的旧会话保持原有效期，下次登录后使用新策略。修改管理员账号名、密码或签名密钥会使旧登录失效。当前仍为单个独立管理员账号。
 
 保存是整份配置替换，点击保存前可核对列表；有未保存改动时可撤销。其他网页每分钟同步一次，原生客户端在启动、返回前台及前台定时刷新中获取配置；搜索、详情和播放不等待普通账号刷新。
 
@@ -181,7 +182,7 @@ DEFAULT_SOURCES=[{"name":"示例源","url":"https://example.com/api.php/provide/
 | `/api/search?stream=1` | 同上 | NDJSON：逐源 `source` 事件及最终 `done` 事件；也可直接使用普通 JSON 模式 |
 | `/api/detail?id=影片ID&sourceKey=源编号` | GET，已登录 | 返回 `episodes`、与地址同序的 `episodeTitles`（无名称时为空字符串）和 `videoInfo`，使用服务器当前源配置 |
 | `/api/proxy?url=编码后的播放地址` | GET，已登录 | 代理播放列表、分片及密钥；HLS 播放列表内地址自动重写 |
-| `/api/admin/auth` | GET / POST `{"password":"管理员密码"}` / DELETE | 独立后台会话状态、登录和退出；签发 `ltv_admin_session` HttpOnly Cookie，不接受观看密码 |
+| `/api/admin/auth` | GET / POST `{"username":"admin","password":"管理员密码","remember":true}` / DELETE | 独立后台会话状态、登录和退出；签发 `ltv_admin_session` HttpOnly Cookie，不接受观看密码 |
 | `/api/admin/sources` | GET / PUT，后台会话 Cookie | 管理员读取/保存共享源，普通客户端不调用；PUT body 为 `{sources,revision}`，旧版本返回 409 |
 | `/api/admin/episodes` | GET / POST，后台会话 Cookie | 后台搜索节目、读取/修改分集资料、查询和导入公开节目资料；不接受观看会话 |
 

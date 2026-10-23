@@ -1,10 +1,10 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { ConfirmDialog } from './confirm-dialog';
 import { AdminAccountDetailView } from './admin-account-detail';
 
-interface User { id: string; username: string; name: string; banned: number; passwordAvailable: boolean; }
+interface User { id: string; username: string; name: string; banned: number; passwordAvailable: boolean; access?: { state: string; expiresAt: number | null }; }
 
 export function AdminUserManager({ onSessionExpired }: { onSessionExpired: () => void }) {
   const [users, setUsers] = useState<User[]>([]);
@@ -12,9 +12,6 @@ export function AdminUserManager({ onSessionExpired }: { onSessionExpired: () =>
   const [detailRevision, setDetailRevision] = useState(0);
   const [total, setTotal] = useState(0);
   const [offset, setOffset] = useState(0);
-  const [username, setUsername] = useState('');
-  const [name, setName] = useState('');
-  const [password, setPassword] = useState('');
   const [resetUser, setResetUser] = useState<User | null>(null);
   const [disableUser, setDisableUser] = useState<User | null>(null);
   const [resetPassword, setResetPassword] = useState('');
@@ -92,16 +89,10 @@ export function AdminUserManager({ onSessionExpired }: { onSessionExpired: () =>
     } catch (cause) { setError(cause instanceof Error ? cause.message : '操作失败'); return false; }
     finally { setBusy(false); }
   };
-  const create = async (event: FormEvent) => {
-    event.preventDefault();
-    if (await mutate('POST', { username, name: name || username, password }, `账号 ${username} 已创建，请将账号与密码私下告知使用者。`)) {
-      setUsername(''); setName(''); setPassword('');
-    }
-  };
-
   const currentUser = selectedUser ? users.find((user) => user.id === selectedUser.id) || selectedUser : null;
   const closeDetail = () => { hidePassword(); setResetUser(null); setResetPassword(''); setDisableUser(null); setSelectedUser(null); setError(''); setMessage(''); };
   const accountActions = currentUser && <div className="space-y-3 border-t border-line pt-4">
+    <div className="text-sm space-y-1"><p>账号授权：{currentUser.access?.state === 'active' ? '使用中' : currentUser.access?.state === 'expired' ? '已到期' : '待激活'}</p><p className="text-muted">到期时间：{currentUser.access?.expiresAt ? new Date(currentUser.access.expiresAt).toLocaleString('zh-CN') : '尚未激活'}</p></div>
     <div className="flex flex-wrap gap-2">
       {currentUser.passwordAvailable ? <button className="btn-ghost text-sm" disabled={busy || revealingId === currentUser.id} onClick={() => shownPassword?.userId === currentUser.id ? hidePassword() : void reveal(currentUser)}>{revealingId === currentUser.id ? '读取中…' : shownPassword?.userId === currentUser.id ? '隐藏密码' : '查看密码'}</button> : <span className="text-xs text-muted self-center">需重置后才能查看密码</span>}
       <button className="btn-ghost text-sm" disabled={busy} onClick={() => { hidePassword(); setResetUser(currentUser); setResetPassword(''); }}>重置密码</button>
@@ -126,23 +117,13 @@ export function AdminUserManager({ onSessionExpired }: { onSessionExpired: () =>
     {error && <p role="alert" className="text-sm text-danger">{error}</p>}
     {message && <p role="status" className="text-sm text-accent">{message}</p>}
     <div hidden={!!selectedUser} className="space-y-5">
-      <details className="card p-5">
-        <summary className="font-medium cursor-pointer">添加账号</summary>
-        <form onSubmit={(event) => void create(event)} className="space-y-4 mt-5">
-          <div className="grid gap-4 sm:grid-cols-3">
-            <label className="text-sm">账号<input required minLength={3} maxLength={32} pattern="[a-zA-Z0-9_]{3,32}" autoComplete="off" className="input w-full mt-2" placeholder="字母、数字或下划线" value={username} onChange={(event) => setUsername(event.target.value)} /></label>
-            <label className="text-sm">显示名称<input maxLength={80} className="input w-full mt-2" placeholder="选填，默认使用账号" value={name} onChange={(event) => setName(event.target.value)} /></label>
-            <label className="text-sm">初始密码<input required type="password" minLength={6} maxLength={128} autoComplete="new-password" className="input w-full mt-2" placeholder="至少 6 位" value={password} onChange={(event) => setPassword(event.target.value)} /></label>
-          </div>
-          <button className="btn-primary" disabled={busy}>{busy ? '正在处理…' : '创建账号'}</button>
-        </form>
-      </details>
+      <p className="text-sm text-muted">请在「授权码管理」生成授权码，用户凭码自行注册账号和设置密码。</p>
       <div className="card p-5 space-y-4">
         <div className="flex items-center justify-between gap-3"><h3 className="font-medium">全部账号（{total}）</h3><button className="btn-ghost text-sm" disabled={loading} onClick={() => void load()}>刷新</button></div>
         {loading && users.length === 0 ? <p className="text-muted text-sm py-8 text-center">正在读取…</p> : users.length === 0 ? <p className="text-muted text-sm py-8 text-center">暂无账号</p> : <div className="max-h-[65vh] overflow-y-auto overscroll-contain space-y-2 pr-1" aria-label="账号列表" tabIndex={0}>
           {users.map((user) => <button key={user.id} className="w-full flex items-center gap-4 rounded-xl border border-line p-4 text-left hover:bg-chip transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent" onClick={() => { hidePassword(); setError(''); setMessage(''); setSelectedUser(user); }}>
             <span className="flex-1 min-w-0"><span className="block font-medium truncate">{user.name}</span><span className="block text-sm text-muted truncate mt-1">{user.username}</span></span>
-            <span className={`rounded-full px-2.5 py-1 text-xs ${user.banned ? 'bg-danger/10 text-danger' : 'bg-accent/10 text-accent'}`}>{user.banned ? '已停用' : '正常'}</span>
+            <span className={`rounded-full px-2.5 py-1 text-xs ${user.banned ? 'bg-danger/10 text-danger' : 'bg-accent/10 text-accent'}`}>{user.banned ? '已停用' : user.access?.state === 'active' ? '使用中' : user.access?.state === 'expired' ? '已到期' : '待激活'}</span>
             <span className="text-sm text-muted">详情 ›</span>
           </button>)}
         </div>}

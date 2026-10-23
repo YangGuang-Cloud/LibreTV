@@ -47,14 +47,14 @@ function ViewerProviders({ children }: { children: ReactNode }) {
       useAppStore.setState(useAppStore.getInitialState(), true);
       await clearObsoletePersonalStorage().catch(() => {});
       if (cancelled) return;
-      if (status.authMode === 'account' && status.user) {
+      if (status.authMode === 'account' && status.verified && status.user) {
         await startAccountData(status.user.id, () => {
           queryClient.setQueryData(['searchHistory'], getSearchHistory());
           queryClient.setQueryData(['viewingHistory'], getHistory());
         });
       }
       if (cancelled) return;
-      if (status.authMode === 'account' && status.user) startViewerActivity(status.user.id);
+      if (status.authMode === 'account' && status.verified && status.user) startViewerActivity(status.user.id);
       void hydrateLiveProbeResults();
       if (!cancelled) setReady(true);
       await applyEnvPresets(status);

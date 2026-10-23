@@ -65,7 +65,7 @@ export function readAccountActivity(database: Database.Database, userId: string,
   const account = database.prepare('SELECT lastActiveAt,trackingSince,totalMs FROM account_activity WHERE userId=?').get(userId) as { lastActiveAt: number; trackingSince: number; totalMs: number } | undefined;
   const states = database.prepare(`SELECT p.state FROM account_activity_producer p JOIN session s ON s.id=p.sessionId
     JOIN user u ON u.id=p.userId WHERE p.userId=? AND p.receivedAt>? AND COALESCE(u.banned,0)=0
-    AND (CASE WHEN typeof(s.expiresAt) IN ('integer','real') THEN s.expiresAt ELSE (julianday(s.expiresAt)-2440587.5)*86400000 END)>?`).all(userId, now - ACTIVITY_TTL, now) as { state: ActivityState }[];
+    AND (CASE WHEN typeof(s.expiresAt) IN ('integer','real') THEN s.expiresAt ELSE (julianday(s.expiresAt)-2440587.5)*86400000 END)>? AND EXISTS(SELECT 1 FROM account_authorization a WHERE a.userId=p.userId AND a.expiresAt>?)`).all(userId, now - ACTIVITY_TTL, now, now) as { state: ActivityState }[];
   const today = database.prepare('SELECT watchedMs FROM account_watch_day WHERE userId=? AND day=?').get(userId, dayKey(now)) as { watchedMs: number } | undefined;
   return { status: states.some((row) => row.state === 'watching') ? 'watching' : states.some((row) => row.state === 'online') ? 'online' : account ? 'offline' : 'unknown',
     lastActiveAt: account?.lastActiveAt ?? null, trackingSince: account?.trackingSince ?? null,

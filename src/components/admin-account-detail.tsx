@@ -100,6 +100,8 @@ export function AdminAccountDetailView({ userId, revision, onSessionExpired, act
       <dl className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
         <div><dt className="text-muted">创建时间</dt><dd className="mt-1">{accountDate(detail.user.createdAt)}</dd></div>
         <div><dt className="text-muted">账号更新时间</dt><dd className="mt-1">{accountDate(detail.user.updatedAt)}</dd></div>
+        <div><dt className="text-muted">账号授权</dt><dd className="mt-1">{detail.authorization.state === 'active' ? '使用中' : detail.authorization.state === 'expired' ? '已到期' : '待激活'}</dd></div>
+        <div><dt className="text-muted">授权到期</dt><dd className="mt-1">{accountDate(detail.authorization.expiresAt)}</dd></div>
         <div><dt className="text-muted">最后登录时间</dt><dd className="mt-1">{detail.lastLoginAt === null ? '暂无记录' : accountDate(detail.lastLoginAt)}</dd></div>
         <div><dt className="text-muted">有效登录会话</dt><dd className="mt-1">{detail.activeSessions}</dd></div>
       </dl>

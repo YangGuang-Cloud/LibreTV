@@ -1,3 +1,4 @@
+import { initializeLicenses } from './account-licenses';
 import Database from 'better-sqlite3';
 import { beforeEach, afterEach, expect, it } from 'vitest';
 import { initializeAccountActivity } from './account-activity';
@@ -16,6 +17,8 @@ beforeEach(() => {
     INSERT INTO account VALUES ('a','credential','secret-hash');
     CREATE TABLE session(id TEXT, userId TEXT, token TEXT, createdAt INTEGER, updatedAt INTEGER, expiresAt INTEGER, ipAddress TEXT, userAgent TEXT);
     INSERT INTO session VALUES ('s1','a','secret-token',1,2,9999999999999,'192.0.2.1','iOS'),('s2','a','expired-token',1,2,10,'192.0.2.2','expired'),('s3','b','other-token',1,2,9999999999999,'192.0.2.3','other');`);
+  initializeLicenses(database);
+  database.exec("INSERT INTO account_authorization SELECT id,9999999999999,0 FROM user");
   initializeSyncSchema(database); initializePasswordVault(database); initializeAccountLoginState(database); initializeAccountActivity(database);
 });
 afterEach(() => database.close());

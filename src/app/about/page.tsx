@@ -14,7 +14,7 @@ export default function AboutPage() {
           <h1 className="text-xl font-bold text-content mb-3">关于 Luna12TV · 月十二影视</h1>
           <p className="text-sm text-muted leading-relaxed">
             Luna12TV（月十二影视）是一个简洁、无内嵌广告的在线视频搜索与观看平台。输入片名即可在多个点播源中聚合搜索，
-            不开放注册、无内嵌广告、不存储任何视频文件。所有播放内容均来自第三方公开接口。
+            凭授权码注册、无内嵌广告、不存储任何视频文件。所有播放内容均来自第三方公开接口。
           </p>
         </section>
 

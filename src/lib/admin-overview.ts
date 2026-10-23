@@ -11,7 +11,7 @@ export function overviewAccounts(database: Database.Database, now = Date.now()):
       COUNT(DISTINCT CASE WHEN p.state='watching' THEN p.userId END) AS watching
       FROM account_activity_producer p JOIN session s ON s.id=p.sessionId JOIN user u ON u.id=p.userId
       WHERE p.receivedAt>? AND p.state IN ('online','watching') AND COALESCE(u.banned,0)=0
-      AND (CASE WHEN typeof(s.expiresAt) IN ('integer','real') THEN s.expiresAt ELSE (julianday(s.expiresAt)-2440587.5)*86400000 END)>?`).get(now - ACTIVITY_TTL, now) as { online: number; watching: number };
+      AND (CASE WHEN typeof(s.expiresAt) IN ('integer','real') THEN s.expiresAt ELSE (julianday(s.expiresAt)-2440587.5)*86400000 END)>? AND EXISTS(SELECT 1 FROM account_authorization a WHERE a.userId=p.userId AND a.expiresAt>?)`).get(now - ACTIVITY_TTL, now, now) as { online: number; watching: number };
     const { todayActive } = database.prepare('SELECT COUNT(*) AS todayActive FROM account_activity WHERE lastActiveAt>=?').get(midnight) as { todayActive: number };
     const { today } = database.prepare('SELECT COALESCE(SUM(watchedMs),0) AS today FROM account_watch_day WHERE day=?').get(day) as { today: number };
     const { total } = database.prepare('SELECT COALESCE(SUM(totalMs),0) AS total FROM account_activity').get() as { total: number };

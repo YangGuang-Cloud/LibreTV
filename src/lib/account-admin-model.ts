@@ -20,6 +20,7 @@ export interface AdminAccountDetail {
   activeSessions: number;
   lastLoginAt: number | null;
   activity: AccountActivity;
+  authorization: import('./account-licenses').AccountAccess;
   section: AdminAccountSection;
   records: AdminAccountRecord[];
   sessions: AdminAccountSession[];

@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import { initializeLicenses, accountAccess } from './account-licenses';
 import path from 'node:path';
 import Database from 'better-sqlite3';
 import { betterAuth } from 'better-auth';
@@ -33,7 +34,7 @@ function createAccountAuth() {
     plugins: [username({ minUsernameLength: 3, maxUsernameLength: 32 }), admin()],
     databaseHooks: {
       session: { create: { after: async (session, context) => {
-        if (context?.path === '/sign-in/username') recordAccountLogin(database, session.userId, session.createdAt.getTime());
+        if (context?.path === '/sign-in/username' && accountAccess(database, session.userId).state === 'active') recordAccountLogin(database, session.userId, session.createdAt.getTime());
       } } },
     },
   });
@@ -50,6 +51,7 @@ export function getAccountAuth(): Promise<AccountAuth> {
       try {
         const { runMigrations } = await getMigrations(state.auth.options);
         await runMigrations();
+        initializeLicenses(state.database);
         initializeSyncSchema(state.database);
         initializePasswordVault(state.database);
         initializeAccountLoginState(state.database);
@@ -61,10 +63,11 @@ export function getAccountAuth(): Promise<AccountAuth> {
   return globalAccounts.lunaAccounts;
 }
 
-export async function getAccountSession(headers: Headers) {
+export async function getAccountSession(headers: Headers, allowExpired = false) {
   const { auth } = await getAccountAuth();
   const session = await auth.api.getSession({ headers, query: { disableCookieCache: true } });
-  return session?.user.banned ? null : session;
+  if (!session || session.user.banned) return null;
+  return allowExpired || accountAccess((await getAccountAuth()).database, session.user.id).state === 'active' ? session : null;
 }
 
 /** 管理操作只从现有独立管理员会话进入；不向浏览器暴露框架的管理端点。 */

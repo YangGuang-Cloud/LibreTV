@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { guardAccountAdminRequest } from '@/lib/account-admin-guard';
-import { AccountInputError, createAccountUser, listAccountUsers, updateAccountUser } from '@/lib/account-users';
+import { AccountInputError, listAccountUsers, updateAccountUser } from '@/lib/account-users';
 
 export const runtime = 'nodejs';
 const headers = { 'Cache-Control': 'private, no-store' };
@@ -24,7 +24,7 @@ async function mutate(req: Request) {
     body = data as Record<string, unknown>;
   } catch { return reply({ error: '请求格式无效' }, 400); }
   try {
-    if (req.method === 'POST') await createAccountUser(body);
+    if (req.method === 'POST') return reply({ error: '请生成授权码，由用户自行注册账号' }, 410);
     else await updateAccountUser(body);
     return reply({ success: true });
   } catch (error) {

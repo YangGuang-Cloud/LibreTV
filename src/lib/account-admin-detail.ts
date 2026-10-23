@@ -1,3 +1,4 @@
+import { accountAccess } from './account-licenses';
 import type Database from 'better-sqlite3';
 import { readAccountActivity } from './account-activity';
 import { AccountInputError } from './account-users';
@@ -65,7 +66,7 @@ export function readAccountDetail(database: Database.Database, userId: string, s
         records.push(record);
       }
     }
-    return { user: { ...row, createdAt: dateMillis(row.createdAt), updatedAt: dateMillis(row.updatedAt), passwordAvailable: row.passwordAvailable === 1 }, counts, activeSessions, activity: readAccountActivity(database, userId, now), lastLoginAt: login?.lastLoginAt ?? null,
+    return { user: { ...row, createdAt: dateMillis(row.createdAt), updatedAt: dateMillis(row.updatedAt), passwordAvailable: row.passwordAvailable === 1 }, counts, activeSessions, authorization: accountAccess(database, userId, now), activity: readAccountActivity(database, userId, now), lastLoginAt: login?.lastLoginAt ?? null,
       section, records, sessions, total: section === 'sessions' ? activeSessions : counts[section].total, offset, limit: ACCOUNT_DETAIL_PAGE_SIZE };
   })();
 }

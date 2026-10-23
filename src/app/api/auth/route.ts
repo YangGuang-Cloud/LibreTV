@@ -85,6 +85,20 @@ async function accountRequest(req: Request, path: string) {
   const response = await accountAuthHandler(new Request(new URL(`/api/auth${path}`, process.env.BETTER_AUTH_URL), {
     method: 'POST', headers, body: raw,
   }));
+  if (path === '/sign-in/username' && response.ok) {
+    const { getAccountAuth, getAccountSession } = await import('@/lib/account-auth');
+    const { accountAccess } = await import('@/lib/account-licenses');
+    const sessionHeaders = new Headers(req.headers);
+    sessionHeaders.set('cookie', response.headers.getSetCookie().map((value) => value.split(';')[0]).join('; '));
+    const session = await getAccountSession(sessionHeaders, true);
+    if (!session) return NextResponse.json({ error: '账号不可用' }, { status: 401 });
+    const { database } = await getAccountAuth();
+    const access = accountAccess(database, session.user.id);
+    if (access.state !== 'active') {
+      database.prepare('DELETE FROM session WHERE id=?').run(session.session.id);
+      return NextResponse.json({ error: access.state === 'expired' ? '账号授权已到期，请使用新的授权码续期' : '账号尚未激活，请使用授权码激活', code: 'AUTHORIZATION_REQUIRED', access }, { status: 403, headers: { 'Cache-Control': 'private, no-store' } });
+    }
+  }
   response.headers.set('Cache-Control', 'private, no-store');
   return response;
 }

@@ -2,7 +2,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vites
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { GET as listUsers, POST as createUser, PATCH as updateUser } from '@/app/api/admin/users/route';
+import { GET as listUsers, POST as manualCreateUser, PATCH as updateUser } from '@/app/api/admin/users/route';
 import { POST as revealPassword } from '@/app/api/admin/users/password/route';
 import { GET as accountDetail } from '@/app/api/admin/users/detail/route';
 import { POST as login, DELETE as logout } from '@/app/api/auth/route';
@@ -12,6 +12,8 @@ import { guardRequest } from './api-guard';
 import { ADMIN_SESSION_COOKIE, signAdminSession } from './admin-auth';
 import { SESSION_COOKIE, signSession, signMediaURL, verifyMediaURL } from './auth';
 import { getAccountAuth } from './account-auth';
+import { POST as register } from '@/app/api/account/register/route';
+import { generateLicenses } from './account-licenses';
 import { POST as activity } from '@/app/api/user/activity/route';
 import { POST as syncData } from '@/app/api/user/sync/route';
 
@@ -21,6 +23,14 @@ const password = 'Test-password-12345';
 const url = 'http://localhost:8080';
 function request(route: string, method = 'GET', body?: unknown, cookie?: string, origin = url) {
   return new Request(url + route, { method, headers: { 'content-type': 'application/json', origin, ...(cookie ? { cookie } : {}) }, ...(body !== undefined ? { body: JSON.stringify(body) } : {}) });
+}
+// Existing account feature checks now obtain users through authorization-code registration.
+async function createUser(req: Request) {
+  const denied = await manualCreateUser(req.clone());
+  if (denied.status !== 410) return denied;
+  const body = await req.json(); const { database } = await getAccountAuth();
+  const [code] = generateLicenses(database, { count: 1, days: 30, redeemBefore: Date.now() + 86400_000 });
+  return register(request('/api/account/register', 'POST', { ...body, code: code.code }));
 }
 function cookies(response: Response) {
   return response.headers.getSetCookie().map((value) => value.split(';')[0]).join('; ');
@@ -58,7 +68,7 @@ describe.sequential('真实 SQLite 账号闭环', () => {
     }
     expect((await createUser(request('/api/admin/users', 'POST', { username: 'friend', password }, adminCookie, 'https://other.example'))).status).toBe(403);
   });
-  it('管理员创建账号保留登录哈希与加密副本，重复账号被拒绝', async () => {
+  it('凭授权码注册保留登录哈希与加密副本，重复账号被拒绝', async () => {
     const created = await createUser(request('/api/admin/users', 'POST', { username: 'Friend', name: '亲友', password }, adminCookie));
     expect(created.status).toBe(200);
     const { database } = await getAccountAuth();

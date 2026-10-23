@@ -1,3 +1,4 @@
+import { accountMode } from './account-mode';
 import { NextResponse } from 'next/server';
 import { viewerConfigured, viewerSession } from './viewer-session';
 
@@ -10,7 +11,7 @@ export async function guardRequest(req: Request): Promise<NextResponse | null> {
     );
   }
   if (!await viewerSession(req)) {
-    return NextResponse.json({ error: '未登录' }, { status: 401 });
+    return NextResponse.json({ error: accountMode() ? '账号未登录或授权已到期，请登录或使用授权码续期' : '未登录' }, { status: 401 });
   }
   return null;
 }

@@ -15,8 +15,9 @@ export const runtime = 'nodejs';
 export async function GET(req: Request) {
   const passwordRequired = viewerConfigured();
   const { getAccountSession } = accountMode() && passwordRequired ? await import('@/lib/account-auth') : { getAccountSession: null };
-  const session = getAccountSession ? await getAccountSession(req.headers) : null;
-  const verified = accountMode() ? !!session : await viewerSession(req);
+  const session = getAccountSession ? await getAccountSession(req.headers, true) : null;
+  const authorization = session ? (await import('@/lib/account-licenses')).accountAccess((await (await import('@/lib/account-auth')).getAccountAuth()).database, session.user.id) : null;
+  const verified = accountMode() ? !!session && authorization?.state === 'active' : await viewerSession(req);
   const managed = serverSourceMode();
   let sources = verified ? getEnvSources() : [];
   if (verified && managed) {
@@ -32,6 +33,8 @@ export async function GET(req: Request) {
     passwordRequired,
     verified,
     authMode: accountMode() ? 'account' : 'password',
+    authorization,
+    registrationRequiresCode: accountMode(),
     user: session ? { id: session.user.id, username: session.user.username, name: session.user.name } : null,
     sourceMode: managed ? 'server' : 'client',
     // 构建时由 next.config.ts 从 package.json 注入

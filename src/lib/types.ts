@@ -95,6 +95,8 @@ export interface BangumiCalendarResponse {
 }
 
 export interface AuthStatusResponse {
+  authorization?: import('./account-licenses').AccountAccess | null;
+  registrationRequiresCode?: boolean;
   recommendations?: import('./recommendation-config').RecommendationSnapshot | null;
   authMode?: 'account' | 'password';
   user?: { id: string; username: string | null; name: string } | null;

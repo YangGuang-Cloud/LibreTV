@@ -1,11 +1,13 @@
 'use client';
 
+import { AccountEnrollment } from './account-enrollment';
 import { useState } from 'react';
 import { useAuth } from './auth';
 import { refreshAccountData, useAccountDataStatus } from '@/lib/account-data';
 
 export function AccountMenu() {
-  const { accountMode, user, logout } = useAuth();
+  const { accountMode, user, authorization, logout } = useAuth();
+  const [renewing, setRenewing] = useState(false);
   const [editing, setEditing] = useState(false);
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
@@ -17,6 +19,7 @@ export function AccountMenu() {
     <summary className="btn-ghost text-sm cursor-pointer max-w-28 truncate" aria-label={`账号：${user.name}`} title={user.name}><span className="sm:hidden">账号</span><span className="hidden sm:inline">{user.name}</span></summary>
     <div className="absolute right-0 mt-2 w-72 max-w-[90vw] card p-4 shadow-xl space-y-3 z-50">
       <p className="text-sm text-muted">账号：{user.username}</p>
+      {authorization?.expiresAt && <p className="text-xs text-muted">授权到期：{new Date(authorization.expiresAt).toLocaleString('zh-CN')}</p>}
       <p className="text-xs text-muted" role="status">{data.state === 'error' ? '暂时无法同步，已有内容可继续使用' : '个人数据与账号同步'}</p>
       <button className="btn-ghost w-full text-sm" onClick={() => void refreshAccountData(true)}>刷新账号数据</button>
       <button className="btn-ghost w-full text-sm" onClick={() => { setEditing(!editing); setMessage(''); setCurrentPassword(''); setNewPassword(''); }}>修改密码</button>
@@ -36,6 +39,8 @@ export function AccountMenu() {
         <button className="btn-primary w-full" disabled={busy}>{busy ? '正在保存…' : '保存新密码'}</button>
       </form>}
       {message && <p role="status" className="text-sm text-muted">{message}</p>}
+      <button className="btn-ghost w-full text-sm" onClick={() => setRenewing(!renewing)}>授权续期</button>
+      {renewing && <AccountEnrollment initialMode="redeem" initialUsername={user.username || ''} onSuccess={() => window.location.reload()} />}
       <button className="btn-ghost w-full text-sm" onClick={() => void logout()}>退出账号</button>
     </div>
   </details>;

@@ -1,5 +1,6 @@
 'use client';
 
+import { AccountEnrollment } from './account-enrollment';
 import { stopViewerActivity } from '@/lib/viewer-activity';
 
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
@@ -31,6 +32,7 @@ interface AuthContextValue {
   version: string | null;
   accountMode: boolean;
   user: AuthStatusResponse['user'];
+  authorization: AuthStatusResponse['authorization'];
   openLogin: () => void;
   logout: () => Promise<void>;
 }
@@ -42,6 +44,7 @@ const AuthContext = createContext<AuthContextValue>({
   version: null,
   accountMode: false,
   user: null,
+  authorization: null,
   openLogin: () => {},
   logout: async () => {},
 });
@@ -57,6 +60,7 @@ export function AuthProvider({ children, initialStatus }: { children: ReactNode;
   const [version, setVersion] = useState<string | null>(initialStatus?.version ?? null);
   const [modalOpen, setModalOpen] = useState(false);
   const [accountMode, setAccountMode] = useState(initialStatus?.authMode === 'account');
+  const [authorization, setAuthorization] = useState<AuthStatusResponse['authorization']>(initialStatus?.authorization);
   const [user, setUser] = useState<AuthStatusResponse['user']>(initialStatus?.user ?? null);
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -77,7 +81,8 @@ export function AuthProvider({ children, initialStatus }: { children: ReactNode;
         const status = await queryClient.fetchQuery({ queryKey: STATUS_QUERY_KEY, queryFn: () => api.status(), staleTime: 0 });
         if (cancelled) return;
         if (status.authMode === 'account' && status.user?.id !== user?.id) { window.location.reload(); return; }
-        if (!status.verified) { setVerified(false); return; }
+        setAuthorization(status.authorization);
+        if (!status.verified) { stopViewerActivity(); stopAccountData(); setVerified(false); return; }
         await applyEnvPresets(status);
       } catch { /* 短暂离线时保留已有配置 */ }
     };
@@ -96,6 +101,7 @@ export function AuthProvider({ children, initialStatus }: { children: ReactNode;
         setVerified(s.verified);
         setAccountMode(s.authMode === 'account');
         setUser(s.user);
+        setAuthorization(s.authorization);
         setSetupRequired(!s.passwordRequired);
         setVersion(s.version);
         setChecked(true);
@@ -114,6 +120,7 @@ export function AuthProvider({ children, initialStatus }: { children: ReactNode;
       onUnauthorized((event) => {
         const setup = (event as CustomEvent).detail === 'setup';
         setSetupRequired(setup);
+        stopViewerActivity(); stopAccountData();
         setVerified(false);
         setModalOpen(true);
       }),
@@ -156,8 +163,8 @@ export function AuthProvider({ children, initialStatus }: { children: ReactNode;
   }, [toast, queryClient, accountMode]);
 
   return (
-    <AuthContext.Provider value={{ checked, verified, setupRequired, version, accountMode, user, openLogin, logout }}>
-      {accountMode && !verified ? <main className="min-h-screen flex items-center justify-center p-6"><div className="card p-8 text-center space-y-4"><h1 className="text-xl font-semibold">Luna12TV · 月十二影视</h1><p className="text-sm text-muted">请使用管理员分配的账号登录。</p><button className="btn-primary" onClick={openLogin}>账号登录</button></div></main> : children}
+    <AuthContext.Provider value={{ checked, verified, setupRequired, version, accountMode, user, authorization, openLogin, logout }}>
+      {accountMode && !verified ? <main className="min-h-screen flex items-center justify-center p-6"><div className="card p-8 text-center space-y-4"><h1 className="text-xl font-semibold">Luna12TV · 月十二影视</h1><p className="text-sm text-muted">登录账号，或凭授权码注册。</p><button className="btn-primary" onClick={openLogin}>账号登录</button></div></main> : children}
       {(modalOpen || (checked && accountMode && !verified)) && (
         <LoginModal
           accountMode={accountMode}
@@ -216,6 +223,8 @@ function LoginModal({
     }
   };
 
+  if (accountMode && !setupRequired) return <div className="fixed inset-0 z-[95] flex items-center justify-center bg-black/80 p-4"><div className="card p-6 w-full max-w-sm max-h-[90dvh] overflow-y-auto" role="dialog" aria-modal="true" aria-label="账号登录"><h2 className="text-lg font-semibold mb-4">Luna12TV 账号</h2><AccountEnrollment onSuccess={onSuccess} /></div></div>;
+
   return (
     <div
       className="fixed inset-0 z-[95] flex items-center justify-center bg-black/80 animate-fade-in"
@@ -239,7 +248,7 @@ function LoginModal({
         ) : (
           <>
             <h2 className="text-lg font-semibold text-content mb-1">{accountMode ? '账号登录' : '访问验证'}</h2>
-            <p className="text-sm text-muted mb-4">{accountMode ? '使用管理员提供的账号与密码，不开放注册。' : '请输入密码继续访问'}</p>
+            <p className="text-sm text-muted mb-4">{accountMode ? '凭授权码注册，或使用已有账号登录。' : '请输入密码继续访问'}</p>
             <form
               onSubmit={(e) => {
                 e.preventDefault();

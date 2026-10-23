@@ -1,3 +1,4 @@
+import { initializeLicenses } from './account-licenses';
 import Database from 'better-sqlite3';
 import { beforeEach, afterEach, expect, it } from 'vitest';
 import { initializeAccountActivity, saveAccountActivity, readAccountActivity, validActivityReport, ACTIVITY_TTL, type ActivityState } from './account-activity';
@@ -8,6 +9,8 @@ beforeEach(() => {
   db.exec(`CREATE TABLE user(id TEXT PRIMARY KEY,banned INTEGER); INSERT INTO user VALUES('a',0),('b',0);
     CREATE TABLE session(id TEXT PRIMARY KEY,userId TEXT REFERENCES user(id),expiresAt);
     INSERT INTO session VALUES('s1','a',9999999999999),('s2','a',9999999999999),('s3','b',9999999999999);`);
+  initializeLicenses(db);
+  db.exec("INSERT INTO account_authorization SELECT id,9999999999999,0 FROM user");
   initializeAccountActivity(db);
 });
 afterEach(() => db.close());
@@ -64,4 +67,11 @@ it('页面反复关闭再打开不会耗尽活动来源名额，离线来源不�
   for (let i = 0; i < 20; i++) saveAccountActivity(db, 'a', 's1', { accountId: 'a', producerId: `producer-reload-${String(i).padStart(4, '0')}`, sequence: 1, watchedMs: 0, state: 'offline' }, base);
   report(1, 0, 'online');
   expect(readAccountActivity(db, 'a', base).status).toBe('online');
+});
+it('账号授权到期或未激活不能显示在线，历史观影时长仍保留', () => {
+  report(1, 0); report(2, 20000);
+  db.prepare('UPDATE account_authorization SET expiresAt=? WHERE userId=?').run(base + 20000, 'a');
+  expect(readAccountActivity(db, 'a', base + 20000)).toMatchObject({ status: 'offline', totalSeconds: 20 });
+  db.prepare('DELETE FROM account_authorization WHERE userId=?').run('a');
+  expect(readAccountActivity(db, 'a', base + 20000)).toMatchObject({ status: 'offline', totalSeconds: 20 });
 });

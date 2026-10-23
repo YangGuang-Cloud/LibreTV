@@ -114,7 +114,8 @@ export const api = {
     if (!res.ok) {
       if (res.status === 429) throw new ApiError('尝试次数过多，请稍后再试', 429);
       if (res.status === 503) throw new ApiError('登录方式尚未配置，请联系管理员', 503);
-      throw new ApiError(username ? '账号或密码错误，或账号已停用' : '密码错误', res.status);
+      const detail = await res.json().catch(() => ({}));
+      throw new ApiError(typeof detail.error === 'string' ? detail.error : username ? '账号或密码错误，或账号已停用' : '密码错误', res.status);
     }
   },
 

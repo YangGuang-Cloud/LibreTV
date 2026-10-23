@@ -1,3 +1,4 @@
+import { accountAccess } from './account-licenses';
 import { hashPassword } from 'better-auth/crypto';
 import { passwordVaultKey, captureManagedPassword, sealManagedPassword, writeManagedPassword, readManagedPassword } from './account-password-vault';
 import { getAccountAuth } from './account-auth';
@@ -28,6 +29,7 @@ export interface ManagedUser {
   banned: number;
   createdAt: number;
   passwordAvailable: boolean;
+  access?: import('./account-licenses').AccountAccess;
 }
 
 export async function listAccountUsers(offset = 0) {
@@ -37,7 +39,7 @@ export async function listAccountUsers(offset = 0) {
       ON credential.userId=vault.userId AND credential.providerId='credential' AND credential.password=vault.passwordHash
       WHERE vault.userId=user.id) AS passwordAvailable
     FROM user ORDER BY createdAt DESC, id LIMIT 50 OFFSET ?`).all(offset) as (Omit<ManagedUser, 'passwordAvailable'> & { passwordAvailable: number })[];
-  const users: ManagedUser[] = rows.map((row) => ({ ...row, passwordAvailable: row.passwordAvailable === 1 }));
+  const users: ManagedUser[] = rows.map((row) => ({ ...row, access: accountAccess(database, row.id), passwordAvailable: row.passwordAvailable === 1 }));
   const { total } = database.prepare('SELECT COUNT(*) AS total FROM user').get() as { total: number };
   return { users, total, offset, limit: 50 };
 }

@@ -31,7 +31,7 @@ function createAccountAuth() {
     emailAndPassword: { enabled: true, disableSignUp: true, minPasswordLength: 6, maxPasswordLength: 128 },
     session: { expiresIn: 30 * 24 * 60 * 60, updateAge: 24 * 60 * 60, cookieCache: { enabled: false } },
     rateLimit: { enabled: true, window: 60, max: 60, customRules: { '/sign-in/username': { window: 600, max: 10 } } },
-    plugins: [username({ minUsernameLength: 3, maxUsernameLength: 32 }), admin()],
+    plugins: [username({ minUsernameLength: 3, maxUsernameLength: 32, usernameNormalization: false }), admin()],
     databaseHooks: {
       session: { create: { after: async (session, context) => {
         if (context?.path === '/sign-in/username' && accountAccess(database, session.userId).state === 'active') recordAccountLogin(database, session.userId, session.createdAt.getTime());

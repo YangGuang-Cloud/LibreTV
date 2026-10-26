@@ -13,8 +13,14 @@ function managedPasswordKey(database: Parameters<typeof passwordVaultKey>[0]) {
 }
 
 export function validUsername(value: unknown): string {
-  if (typeof value !== 'string' || !/^[a-zA-Z0-9_]{3,32}$/.test(value.trim())) throw new AccountInputError('账号需为 3–32 位字母、数字或下划线');
-  return value.trim().toLowerCase();
+  if (typeof value !== 'string' || !/^[a-zA-Z0-9]{6,20}$/.test(value.trim())) throw new AccountInputError('账号需为 6–20 位英文字母或数字，区分大小写');
+  return value.trim();
+}
+
+// Existing accounts retain their original identifiers, including short names and underscores.
+export function existingUsername(value: unknown): string {
+  if (typeof value !== 'string' || !/^[a-zA-Z0-9_]{3,32}$/.test(value.trim())) throw new AccountInputError('请输入正确的账号');
+  return value.trim();
 }
 
 export function validPassword(value: unknown): string {

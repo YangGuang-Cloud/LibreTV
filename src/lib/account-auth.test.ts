@@ -69,7 +69,7 @@ describe.sequential('真实 SQLite 账号闭环', () => {
     expect((await createUser(request('/api/admin/users', 'POST', { username: 'friend', password }, adminCookie, 'https://other.example'))).status).toBe(403);
   });
   it('凭授权码注册保留登录哈希与加密副本，重复账号被拒绝', async () => {
-    const created = await createUser(request('/api/admin/users', 'POST', { username: 'Friend', name: '亲友', password }, adminCookie));
+    const created = await createUser(request('/api/admin/users', 'POST', { username: 'friend', name: '亲友', password }, adminCookie));
     expect(created.status).toBe(200);
     const { database } = await getAccountAuth();
     const credential = database.prepare('SELECT password FROM account').get() as { password: string };
@@ -162,16 +162,16 @@ describe.sequential('真实 SQLite 账号闭环', () => {
     expect(response.status).toBe(200);
     const cookie = cookies(response);
     const current = await (await status(request('/api/status', 'GET', undefined, cookie))).json();
-    expect(current.user).toMatchObject({ username: 'shortpassfriend', name: '短密码测试' });
+    expect(current.user).toMatchObject({ username: 'ShortPassFriend', name: '短密码测试' });
     expect((await logout(request('/api/auth', 'DELETE', undefined, cookie))).status).toBe(200);
   });
   it('账号详情只允许独立管理员会话读取，响应禁止缓存，参数错误不泄露数据库信息', async () => {
     const { database } = await getAccountAuth();
-    const { id } = database.prepare("SELECT id FROM user WHERE username='shortpassfriend'").get() as { id: string };
+    const { id } = database.prepare("SELECT id FROM user WHERE username='ShortPassFriend'").get() as { id: string };
     const route = '/api/admin/users/detail?userId=' + encodeURIComponent(id);
     expect((await accountDetail(request(route))).status).toBe(401);
     expect((await accountDetail(request(route, 'GET', undefined, `${SESSION_COOKIE}=${signSession().token}`))).status).toBe(401);
-    const viewerRequest = request('/api/auth', 'POST', { username: 'shortpassfriend', password: 'six123' });
+    const viewerRequest = request('/api/auth', 'POST', { username: 'ShortPassFriend', password: 'six123' });
     viewerRequest.headers.set('x-forwarded-for', '192.0.2.90');
     viewerRequest.headers.set('user-agent', 'Luna12TV/2.16.18 (iOS 27.0; iPhone19,2)');
     const viewer = await login(viewerRequest);
@@ -181,7 +181,7 @@ describe.sequential('真实 SQLite 账号闭环', () => {
     expect(response.status).toBe(200);
     expect(response.headers.get('cache-control')).toContain('no-store');
     const data = await response.json();
-    expect(data.user.username).toBe('shortpassfriend');
+    expect(data.user.username).toBe('ShortPassFriend');
     const deviceResponse = await accountDetail(request(route + '&section=sessions', 'GET', undefined, adminCookie));
     const deviceData = await deviceResponse.json();
     expect(deviceData.sessions.some((session: { userAgent: string }) => session.userAgent === 'Luna12TV/2.16.18 (iOS 27.0; iPhone19,2)')).toBe(true);
@@ -230,7 +230,7 @@ describe.sequential('真实 SQLite 账号闭环', () => {
   });
 
   it('最后登录时间只由成功登录更新，失败登录、读取会话和退出不会改写或清除', async () => {
-    const username = 'login_time_test';
+    const username = 'LoginTimeTest';
     expect((await createUser(request('/api/admin/users', 'POST', { username, password }, adminCookie))).status).toBe(200);
     const { database } = await getAccountAuth();
     const { id } = database.prepare('SELECT id FROM user WHERE username=?').get(username) as { id: string };
@@ -260,7 +260,7 @@ describe.sequential('真实 SQLite 账号闭环', () => {
   });
 
   it('活动上报需要有效账号会话且拒绝跨站、冒用账号，停用后离线并保留时长', async () => {
-    const username = 'activity_test';
+    const username = 'ActivityTest';
     expect((await createUser(request('/api/admin/users', 'POST', { username, password }, adminCookie))).status).toBe(200);
     const { database } = await getAccountAuth();
     const { id } = database.prepare('SELECT id FROM user WHERE username=?').get(username) as { id: string };

@@ -19,7 +19,8 @@ export function AccountEnrollment({ onSuccess, initialMode = 'login', initialUse
       } catch (cause) { const message = cause instanceof Error ? cause.message : '操作失败'; setError(message); if (mode === 'login' && (message.includes('授权') || message.includes('激活'))) setMode('redeem'); }
       finally { setBusy(false); }
     }}>
-      <label className="block text-sm">账号<input required maxLength={32} minLength={3} pattern="[a-zA-Z0-9_]{3,32}" autoComplete="username" className="input w-full mt-1" value={username} onChange={e => setUsername(e.target.value)} /></label>
+      <label className="block text-sm">账号<input required maxLength={mode === 'register' ? 20 : 32} minLength={mode === 'register' ? 6 : 3} pattern={mode === 'register' ? '[a-zA-Z0-9]{6,20}' : '[a-zA-Z0-9_]{3,32}'} autoCapitalize="none" autoCorrect="off" autoComplete="username" className="input w-full mt-1" value={username} onChange={e => setUsername(e.target.value)} /></label>
+      {mode === 'register' && <p className="text-xs text-muted">6–20 位英文字母或数字，区分大小写。</p>}
       <label className="block text-sm">密码<input required type="password" minLength={mode === 'register' ? 6 : undefined} maxLength={128} autoComplete={mode === 'register' ? 'new-password' : 'current-password'} className="input w-full mt-1" value={password} onChange={e => setPassword(e.target.value)} /></label>
       {mode === 'register' && <label className="block text-sm">确认密码<input required type="password" maxLength={128} autoComplete="new-password" className="input w-full mt-1" value={confirmation} onChange={e => setConfirmation(e.target.value)} /></label>}
       {mode !== 'login' && <label className="block text-sm">授权码<input required maxLength={150} autoComplete="off" className="input w-full mt-1" value={code} onChange={e => setCode(e.target.value)} /></label>}

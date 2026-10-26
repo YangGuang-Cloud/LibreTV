@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import { recordAccountLogin } from './account-login-state';
 import { hashPassword } from 'better-auth/crypto';
 import { getAccountAuth, accountAuthHandler, getAccountSession } from './account-auth';
-import { validUsername, validPassword, AccountInputError } from './account-users';
+import { validUsername, existingUsername, validPassword, AccountInputError } from './account-users';
 import { LicenseError, redeemLicense } from './account-licenses';
 import { passwordVaultKey, sealManagedPassword, writeManagedPassword } from './account-password-vault';
 import { checkRateLimit, clearRateLimit } from './auth';
@@ -42,10 +42,10 @@ export async function enrollmentRequest(req: Request, kind: 'register' | 'redeem
       return reply({ success: true });
     }
     let session = await getAccountSession(req.headers, true);
-    if (session && typeof body.username === 'string' && validUsername(body.username) !== session.user.username?.toLowerCase()) throw new LicenseError('与当前登录账号不一致，请先退出账号');
+    if (session && typeof body.username === 'string' && existingUsername(body.username) !== session.user.username) throw new LicenseError('与当前登录账号不一致，请先退出账号');
     let loginResponse: Response | null = null;
     if (!session) {
-      const username = validUsername(body.username), password = validPassword(body.password);
+      const username = existingUsername(body.username), password = validPassword(body.password);
       const loginHeaders = new Headers(req.headers); loginHeaders.set('content-type', 'application/json'); loginHeaders.delete('content-length');
       loginResponse = await accountAuthHandler(new Request(new URL('/api/auth/sign-in/username', process.env.BETTER_AUTH_URL), { method: 'POST', headers: loginHeaders, body: JSON.stringify({ username, password }) }));
       if (!loginResponse.ok) return reply({ error: '账号或密码错误，或账号已停用' }, 401);

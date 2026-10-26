@@ -38,10 +38,10 @@ it('无授权码无法注册且不遗留账号，有效码绑定自行注册账�
 });
 it('同一码并发注册仅一人成功，失败者不留下账号，不能转给另一账号', async () => {
   const issued = await code();
-  const results = await Promise.all(['racer_one', 'racer_two'].map(username => register(req('/api/account/register', { username, password: '123456', code: issued.code }))));
+  const results = await Promise.all(['racerOne', 'racerTwo'].map(username => register(req('/api/account/register', { username, password: '123456', code: issued.code }))));
   expect(results.map(result => result.status).sort()).toEqual([200, 400]);
   const { database } = await getAccountAuth();
-  expect((database.prepare("SELECT COUNT(*) AS n FROM user WHERE username LIKE 'racer_%'").get() as { n: number }).n).toBe(1);
+  expect((database.prepare("SELECT COUNT(*) AS n FROM user WHERE username LIKE 'racer%'").get() as { n: number }).n).toBe(1);
 });
 it('到期后旧会话不能搜索同步或观看，登录不发 Cookie；数据仍在，新码可恢复并保留账号', async () => {
   const { database } = await getAccountAuth();
@@ -84,10 +84,10 @@ it('无限期授权支持注册与登录，拒绝重复续期且不消耗新码'
   const { database } = await getAccountAuth();
   const issued = generateLicenses(database, { count: 1, days: null, redeemBefore: null })[0];
   expect((listLicenses(database, 0, issued.id) as Record<string, unknown>).state).toBe('unused');
-  expect((await register(req('/api/account/register', { username: 'forever_user', password: '123456', code: issued.code }))).status).toBe(200);
-  const { id } = database.prepare("SELECT id FROM user WHERE username='forever_user'").get() as { id: string };
+  expect((await register(req('/api/account/register', { username: 'foreverUser', password: '123456', code: issued.code }))).status).toBe(200);
+  const { id } = database.prepare("SELECT id FROM user WHERE username='foreverUser'").get() as { id: string };
   expect(accountAccess(database, id, Date.now() + 100 * 365 * 86400_000)).toEqual({ state: 'active', expiresAt: null });
-  const response = await login(req('/api/auth', { username: 'forever_user', password: '123456' }));
+  const response = await login(req('/api/auth', { username: 'foreverUser', password: '123456' }));
   expect(response.status).toBe(200);
   expect(await guardRequest(req('/api/search', undefined, cookieOf(response)))).toBeNull();
   for (const days of [7, null]) {

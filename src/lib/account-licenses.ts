@@ -3,6 +3,7 @@ import type Database from 'better-sqlite3';
 import { passwordVaultKey } from './account-password-vault';
 export class LicenseError extends Error { constructor(message: string, public status = 400) { super(message); } }
 export interface AccountAccess { state: 'active' | 'expired' | 'unactivated'; expiresAt: number | null; }
+// SQLite uses 0 for unlimited duration/deadline; public account expiry is null when active indefinitely.
 const DAY = 86400_000;
 export function initializeLicenses(db: Database.Database) {
   db.exec(`CREATE TABLE IF NOT EXISTS authorization_code (
@@ -15,7 +16,7 @@ export function initializeLicenses(db: Database.Database) {
 }
 export function accountAccess(db: Database.Database, userId: string, now = Date.now()): AccountAccess {
   const row = db.prepare('SELECT expiresAt FROM account_authorization WHERE userId=?').get(userId) as { expiresAt: number } | undefined;
-  return { state: row ? row.expiresAt > now ? 'active' : 'expired' : 'unactivated', expiresAt: row?.expiresAt ?? null };
+  return { state: row ? (row.expiresAt === 0 || row.expiresAt > now) ? 'active' : 'expired' : 'unactivated', expiresAt: row?.expiresAt || null };
 }
 const normalized = (code: string) => code.trim().toUpperCase().replace(/[-\s]/g, '');
 const digest = (code: string) => crypto.createHash('sha256').update(normalized(code)).digest('hex');
@@ -31,11 +32,13 @@ function unseal(db: Database.Database, id: string, value: string) {
   return Buffer.concat([cipher.update(data.subarray(28)), cipher.final()]).toString('utf8');
 }
 export function generateLicenses(db: Database.Database, input: Record<string, unknown>, now = Date.now()) {
-  const { count, days, redeemBefore } = input;
+  const { count } = input;
+  const days = input.days === null ? 0 : input.days;
+  const redeemBefore = input.redeemBefore === null ? 0 : input.redeemBefore;
   const label = typeof input.label === 'string' ? input.label.trim() : '';
   if (!Number.isInteger(count) || Number(count) < 1 || Number(count) > 100) throw new LicenseError('每次可生成 1–100 个授权码');
-  if (!Number.isInteger(days) || Number(days) < 1 || Number(days) > 3650) throw new LicenseError('授权天数需为 1–3650 天');
-  if (!Number.isSafeInteger(redeemBefore) || Number(redeemBefore) <= now || Number(redeemBefore) > now + 3650 * DAY) throw new LicenseError('请设置有效的最晚兑换时间（十年内）');
+  if (input.days !== null && (!Number.isInteger(days) || Number(days) < 1 || Number(days) > 3650)) throw new LicenseError('授权天数需为 1–3650 天，或选择无限期');
+  if (input.redeemBefore !== null && (!Number.isSafeInteger(redeemBefore) || Number(redeemBefore) <= now || Number(redeemBefore) > now + 3650 * DAY)) throw new LicenseError('请设置有效的最晚兑换时间（十年内）');
   if (label.length > 100) throw new LicenseError('备注最多 100 个字符');
   return db.transaction(() => Array.from({ length: Number(count) }, () => {
     const id = crypto.randomUUID(), code = 'LUNA-' + crypto.randomBytes(16).toString('hex').toUpperCase().match(/.{4}/g)!.join('-');
@@ -48,24 +51,26 @@ export function redeemLicense(db: Database.Database, userId: string, code: unkno
   if (typeof code !== 'string' || code.length > 150 || !code.trim()) throw new LicenseError('请输入授权码');
   return db.transaction(() => {
     const row = db.prepare('SELECT * FROM authorization_code WHERE codeHash=?').get(digest(code)) as { id: string; userId: string | null; revokedAt: number | null; redeemBefore: number; days: number } | undefined;
-    if (!row || row.userId || row.revokedAt !== null || row.redeemBefore <= now) throw new LicenseError('授权码无效、已使用或已失效');
+    if (!row || row.userId || row.revokedAt !== null || (row.redeemBefore !== 0 && row.redeemBefore <= now)) throw new LicenseError('授权码无效、已使用或已失效');
     const user = db.prepare('SELECT banned FROM user WHERE id=?').get(userId) as { banned: number | null } | undefined;
     if (!user || user.banned) throw new LicenseError('账号不可用', 403);
-    const access = accountAccess(db, userId, now), until = Math.max(now, access.expiresAt ?? 0) + row.days * DAY;
+    const access = accountAccess(db, userId, now);
+    if (access.state === 'active' && access.expiresAt === null) throw new LicenseError('当前账号已是无限期，无需续期');
+    const until = row.days === 0 ? 0 : Math.max(now, access.expiresAt ?? 0) + row.days * DAY;
     const claimed = db.prepare('UPDATE authorization_code SET userId=?,redeemedAt=?,grantedUntil=? WHERE id=? AND userId IS NULL AND revokedAt IS NULL').run(userId, now, until, row.id);
     if (claimed.changes !== 1) throw new LicenseError('授权码已被使用', 409);
     db.prepare('INSERT INTO account_authorization(userId,expiresAt,updatedAt) VALUES(?,?,?) ON CONFLICT(userId) DO UPDATE SET expiresAt=excluded.expiresAt,updatedAt=excluded.updatedAt').run(userId, until, now);
-    return { state: 'active' as const, expiresAt: until };
+    return { state: 'active' as const, expiresAt: until || null };
   }).immediate();
 }
 export function listLicenses(db: Database.Database, offset = 0, id?: string, now = Date.now()) {
   const query = `SELECT c.id,c.label,c.days,c.redeemBefore,c.createdAt,c.revokedAt,c.userId,c.redeemedAt,c.grantedUntil,u.username,
-    CASE WHEN c.userId IS NOT NULL THEN 'used' WHEN c.revokedAt IS NOT NULL THEN 'revoked' WHEN c.redeemBefore<=? THEN 'expired' ELSE 'unused' END AS state
+    CASE WHEN c.userId IS NOT NULL THEN 'used' WHEN c.revokedAt IS NOT NULL THEN 'revoked' WHEN c.redeemBefore<>0 AND c.redeemBefore<=? THEN 'expired' ELSE 'unused' END AS state
     FROM authorization_code c LEFT JOIN user u ON u.id=c.userId`;
   const totals = db.prepare(`SELECT COUNT(*) AS total, COALESCE(SUM(userId IS NOT NULL),0) AS used,
     COALESCE(SUM(userId IS NULL AND revokedAt IS NOT NULL),0) AS revoked,
-    COALESCE(SUM(userId IS NULL AND revokedAt IS NULL AND redeemBefore<=?),0) AS expired,
-    COALESCE(SUM(userId IS NULL AND revokedAt IS NULL AND redeemBefore>?),0) AS unused FROM authorization_code`).get(now, now);
+    COALESCE(SUM(userId IS NULL AND revokedAt IS NULL AND redeemBefore<>0 AND redeemBefore<=?),0) AS expired,
+    COALESCE(SUM(userId IS NULL AND revokedAt IS NULL AND (redeemBefore=0 OR redeemBefore>?)),0) AS unused FROM authorization_code`).get(now, now);
   if (id) {
     const item = db.prepare(query + ' WHERE c.id=?').get(now, id) as Record<string, unknown> | undefined;
     if (!item) throw new LicenseError('授权码不存在', 404);

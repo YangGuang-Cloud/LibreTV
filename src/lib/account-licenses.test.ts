@@ -80,3 +80,33 @@ it('跨站、错误密码续期与未经授权的注册失败，不返回密钥'
   expect((await register(bad)).status).toBe(403);
   expect((await renew(req('/api/account/redeem', { username: 'licensed', password: 'wrongpw', code: issued.code }))).status).toBe(401);
 });
+it('无限期授权支持注册与登录，拒绝重复续期且不消耗新码', async () => {
+  const { database } = await getAccountAuth();
+  const issued = generateLicenses(database, { count: 1, days: null, redeemBefore: null })[0];
+  expect((listLicenses(database, 0, issued.id) as Record<string, unknown>).state).toBe('unused');
+  expect((await register(req('/api/account/register', { username: 'forever_user', password: '123456', code: issued.code }))).status).toBe(200);
+  const { id } = database.prepare("SELECT id FROM user WHERE username='forever_user'").get() as { id: string };
+  expect(accountAccess(database, id, Date.now() + 100 * 365 * 86400_000)).toEqual({ state: 'active', expiresAt: null });
+  const response = await login(req('/api/auth', { username: 'forever_user', password: '123456' }));
+  expect(response.status).toBe(200);
+  expect(await guardRequest(req('/api/search', undefined, cookieOf(response)))).toBeNull();
+  for (const days of [7, null]) {
+    const unused = generateLicenses(database, { count: 1, days, redeemBefore: null })[0];
+    expect(() => redeemLicense(database, id, unused.code)).toThrow('当前账号已是无限期，无需续期');
+    expect((listLicenses(database, 0, unused.id) as Record<string, unknown>).state).toBe('unused');
+  }
+});
+it('限时账号可升级无限期，不限兑换时间的码长期可用，有限兑换期限仍生效', async () => {
+  const { database } = await getAccountAuth();
+  const { id } = database.prepare("SELECT id FROM user WHERE username='licensed'").get() as { id: string };
+  const now = Date.now();
+  database.prepare('INSERT OR REPLACE INTO account_authorization(userId,expiresAt,updatedAt) VALUES(?,?,?)').run(id, now + 86400_000, now);
+  const issued = generateLicenses(database, { count: 1, days: null, redeemBefore: null }, now)[0];
+  expect(redeemLicense(database, id, issued.code, now + 100 * 365 * 86400_000)).toEqual({ state: 'active', expiresAt: null });
+  const expired = generateLicenses(database, { count: 1, days: null, redeemBefore: now + 1000 }, now)[0];
+  expect(() => redeemLicense(database, id, expired.code, now + 1000)).toThrow('授权码无效');
+  const unused = generateLicenses(database, { count: 1, days: 7, redeemBefore: null }, now)[0];
+  revokeLicense(database, unused.id);
+  expect((listLicenses(database, 0, unused.id) as Record<string, unknown>).state).toBe('revoked');
+  for (const days of [0, -1, 1.5, 3651, undefined]) expect(() => generateLicenses(database, { count: 1, days, redeemBefore: null })).toThrow();
+});

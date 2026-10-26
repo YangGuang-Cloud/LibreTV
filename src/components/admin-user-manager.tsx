@@ -92,7 +92,7 @@ export function AdminUserManager({ onSessionExpired }: { onSessionExpired: () =>
   const currentUser = selectedUser ? users.find((user) => user.id === selectedUser.id) || selectedUser : null;
   const closeDetail = () => { hidePassword(); setResetUser(null); setResetPassword(''); setDisableUser(null); setSelectedUser(null); setError(''); setMessage(''); };
   const accountActions = currentUser && <div className="space-y-3 border-t border-line pt-4">
-    <div className="text-sm space-y-1"><p>账号授权：{currentUser.access?.state === 'active' ? '使用中' : currentUser.access?.state === 'expired' ? '已到期' : '待激活'}</p><p className="text-muted">到期时间：{currentUser.access?.expiresAt ? new Date(currentUser.access.expiresAt).toLocaleString('zh-CN') : '尚未激活'}</p></div>
+    <div className="text-sm space-y-1"><p>账号授权：{currentUser.access?.state === 'active' ? '使用中' : currentUser.access?.state === 'expired' ? '已到期' : '待激活'}</p><p className="text-muted">到期时间：{currentUser.access?.expiresAt ? new Date(currentUser.access.expiresAt).toLocaleString('zh-CN') : currentUser.access?.state === 'active' ? '无限期' : '尚未激活'}</p></div>
     <div className="flex flex-wrap gap-2">
       {currentUser.passwordAvailable ? <button className="btn-ghost text-sm" disabled={busy || revealingId === currentUser.id} onClick={() => shownPassword?.userId === currentUser.id ? hidePassword() : void reveal(currentUser)}>{revealingId === currentUser.id ? '读取中…' : shownPassword?.userId === currentUser.id ? '隐藏密码' : '查看密码'}</button> : <span className="text-xs text-muted self-center">需重置后才能查看密码</span>}
       <button className="btn-ghost text-sm" disabled={busy} onClick={() => { hidePassword(); setResetUser(currentUser); setResetPassword(''); }}>重置密码</button>

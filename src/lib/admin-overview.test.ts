@@ -20,6 +20,8 @@ it('按账号去重在线和观看人数，排除超时、停用、离线及过�
     db.prepare('INSERT INTO account_activity VALUES(?,?,?,?,?)').run('b', now - 86400000, now - 86400000, now, 60000);
     db.exec("INSERT INTO account_watch_day VALUES('a','2026-10-22',60000),('b','2026-10-21',60000)");
     expect(overviewAccounts(db, now)).toEqual({ total: 6, disabled: 1, online: 2, watching: 1, todayActive: 1, todayWatchSeconds: 60, totalWatchSeconds: 180 });
+    db.prepare('UPDATE account_authorization SET expiresAt=0 WHERE userId=?').run('a');
+    expect(overviewAccounts(db, now)).toMatchObject({ online: 2, watching: 1 });
     db.prepare('UPDATE account_authorization SET expiresAt=? WHERE userId=?').run(now, 'a');
     expect(overviewAccounts(db, now)).toMatchObject({ online: 1, watching: 0, totalWatchSeconds: 180 });
   } finally { db.close(); }

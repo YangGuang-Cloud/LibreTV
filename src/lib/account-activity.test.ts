@@ -72,6 +72,8 @@ it('账号授权到期或未激活不能显示在线，历史观影时长仍保�
   report(1, 0); report(2, 20000);
   db.prepare('UPDATE account_authorization SET expiresAt=? WHERE userId=?').run(base + 20000, 'a');
   expect(readAccountActivity(db, 'a', base + 20000)).toMatchObject({ status: 'offline', totalSeconds: 20 });
+  db.prepare('UPDATE account_authorization SET expiresAt=0 WHERE userId=?').run('a');
+  expect(readAccountActivity(db, 'a', base + 20000)).toMatchObject({ status: 'watching', totalSeconds: 20 });
   db.prepare('DELETE FROM account_authorization WHERE userId=?').run('a');
   expect(readAccountActivity(db, 'a', base + 20000)).toMatchObject({ status: 'offline', totalSeconds: 20 });
 });

@@ -115,6 +115,10 @@ export function checkRateLimit(ip: string): boolean {
   return true;
 }
 
+export function rateLimitRetryAfter(ip: string): number {
+  return Math.max(0, Math.ceil(((attemptMap.get(ip)?.resetAt ?? 0) - Date.now()) / 1000));
+}
+
 export function clearRateLimit(ip: string): void {
   attemptMap.delete(ip);
 }

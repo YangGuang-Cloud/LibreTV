@@ -48,6 +48,7 @@ export async function enrollmentRequest(req: Request, kind: 'register' | 'redeem
       const username = existingUsername(body.username), password = validPassword(body.password);
       const loginHeaders = new Headers(req.headers); loginHeaders.set('content-type', 'application/json'); loginHeaders.delete('content-length');
       loginResponse = await accountAuthHandler(new Request(new URL('/api/auth/sign-in/username', process.env.BETTER_AUTH_URL), { method: 'POST', headers: loginHeaders, body: JSON.stringify({ username, password }) }));
+      if (loginResponse.status === 429) return loginResponse;
       if (!loginResponse.ok) return reply({ error: '账号或密码错误，或账号已停用' }, 401);
       const sessionHeaders = new Headers(req.headers);
       sessionHeaders.set('cookie', loginResponse.headers.getSetCookie().map((value) => value.split(';')[0]).join('; '));

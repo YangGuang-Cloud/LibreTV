@@ -58,3 +58,21 @@ it('历史短账号与下划线账号不迁移，仍可激活和登录；新注�
     expect((listLicenses(database, 0, unused.id) as Record<string, unknown>).state).toBe('unused');
   }
 });
+it('成功登录不累积失败额度，连续失败限流带等待时间，激活也保留 429 状态', async () => {
+  const username = 'LimitUser1', password = 'Secret444';
+  expect((await register(request('/api/account/register', { username, password, code: (await issue()).code }))).status).toBe(200);
+  const attempt = (pass: string) => {
+    const input = request('/api/auth', { username, password: pass });
+    input.headers.set('x-forwarded-for', '192.0.2.240');
+    return login(input);
+  };
+  for (let i = 0; i < 12; i++) expect((await attempt(password)).status).toBe(200);
+  for (let i = 0; i < 10; i++) expect((await attempt('incorrect')).status).toBe(401);
+  const blocked = await attempt(password);
+  expect(blocked.status).toBe(429);
+  expect(Number(blocked.headers.get('retry-after'))).toBeGreaterThan(0);
+  expect((await blocked.json()).error).toContain('分钟后重试');
+  const input = request('/api/account/redeem', { username, password, code: (await issue()).code });
+  input.headers.set('x-forwarded-for', '192.0.2.240');
+  expect((await redeem(input)).status).toBe(429);
+});

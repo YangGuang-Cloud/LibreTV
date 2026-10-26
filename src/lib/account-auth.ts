@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import { checkRateLimit, clearRateLimit, rateLimitRetryAfter } from './auth';
 import { initializeLicenses, accountAccess } from './account-licenses';
 import path from 'node:path';
 import Database from 'better-sqlite3';
@@ -30,7 +31,7 @@ function createAccountAuth() {
     advanced: { disableCSRFCheck: false, disableOriginCheck: false },
     emailAndPassword: { enabled: true, disableSignUp: true, minPasswordLength: 6, maxPasswordLength: 128 },
     session: { expiresIn: 30 * 24 * 60 * 60, updateAge: 24 * 60 * 60, cookieCache: { enabled: false } },
-    rateLimit: { enabled: true, window: 60, max: 60, customRules: { '/sign-in/username': { window: 600, max: 10 } } },
+    rateLimit: { enabled: true, window: 60, max: 60, customRules: { '/sign-in/username': false } },
     plugins: [username({ minUsernameLength: 3, maxUsernameLength: 32, usernameNormalization: false }), admin()],
     databaseHooks: {
       session: { create: { after: async (session, context) => {
@@ -83,6 +84,16 @@ export async function accountAuthHandler(req: Request): Promise<Response> {
     }
     if (!valid) return Response.json({ error: '请求来源无效' }, { status: 403 });
   }
+  const isLogin = req.method === 'POST' && new URL(req.url).pathname === '/api/auth/sign-in/username';
+  const ip = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || req.headers.get('x-real-ip') || 'unknown';
+  const loginLimitKey = `account-login:${ip}`;
+  // Consume before password hashing to limit concurrent attempts; successful authentication resets failures.
+  if (isLogin && !checkRateLimit(loginLimitKey)) {
+    const seconds = Math.max(1, rateLimitRetryAfter(loginLimitKey));
+    return Response.json({ error: `登录尝试过于频繁，请约 ${Math.ceil(seconds / 60)} 分钟后重试` }, {
+      status: 429, headers: { 'Retry-After': String(seconds), 'Cache-Control': 'private, no-store' },
+    });
+  }
   const { auth, database } = await getAccountAuth();
   let change: { userId: string; password: string; key: Buffer } | undefined;
   if (req.method === 'POST' && new URL(req.url).pathname === '/api/auth/change-password') {
@@ -101,6 +112,7 @@ export async function accountAuthHandler(req: Request): Promise<Response> {
     }
   }
   const response = await auth.handler(req);
+  if (isLogin && response.ok) clearRateLimit(loginLimitKey);
   if (response.ok && change) {
     // 更新失败时 hash 绑定仍会使旧副本不可查看；不将已完成的改密误报为失败。
     try { await captureManagedPassword(database, change.key, change.userId, change.password); }

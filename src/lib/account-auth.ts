@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import { initializeContentProfiles } from './content-profile-schema';
 import { initializeDevices, deviceSessionAllowed, bindDevice, requestDevice, logoutSessionDevice } from './account-devices';
 import { checkRateLimit, clearRateLimit, rateLimitRetryAfter } from './auth';
 import { initializeLicenses, accountAccess } from './account-licenses';
@@ -54,6 +55,7 @@ export function getAccountAuth(): Promise<AccountAuth> {
         initializeAccountLoginState(state.database);
         initializeAccountActivity(state.database);
         initializeDevices(state.database);
+        initializeContentProfiles(state.database);
         return state;
       } catch (error) { state.database.close(); throw error; }
     })().catch((error) => { globalAccounts.lunaAccounts = undefined; throw error; });

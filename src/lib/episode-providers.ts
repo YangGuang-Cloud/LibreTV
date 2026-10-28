@@ -1,5 +1,5 @@
 import { fetchUpstream, getCache, setCache } from './fetch-utils';
-import { normalizeTitle } from './cms-parser';
+import { normalizeTitle } from './search-result-utils';
 import type { VideoDetail } from './types';
 
 export type EpisodeProvider = 'bangumi' | 'tvmaze';

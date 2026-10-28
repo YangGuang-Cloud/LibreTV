@@ -1,7 +1,8 @@
+import { getSourceAdapter } from '@/lib/source-adapters';
 import { NextResponse } from 'next/server';
 import { guardRequest } from '@/lib/api-guard';
-import { cmsRequestHeaders, filterAdultResults, filterRelevantResults, normalizeTitle, parseSearchList } from '@/lib/cms-parser';
-import { fetchUpstream, getCache, setCache } from '@/lib/fetch-utils';
+import { filterAdultResults, filterRelevantResults, normalizeTitle } from '@/lib/search-result-utils';
+import { getCache, setCache } from '@/lib/fetch-utils';
 import type { SearchResponse, SearchStreamEvent, SourceConfig, SourceSearchOutcome } from '@/lib/types';
 import { parseSourceConfig, sourceCacheIdentity } from '@/lib/source-config';
 import { resolveServerSources, serverSourceMode } from '@/lib/server-sources';
@@ -88,32 +89,17 @@ async function searchSource(source: SourceConfig, wd: string, parentSignal: Abor
     }, SEARCH_SOURCE_TIMEOUT_MS);
   });
 
-  const base = source.url.replace(/\/+$/, '');
-  const fetchPage = async (page: number) => {
-    const api = new URL(base);
-    api.searchParams.set('ac', 'videolist');
-    api.searchParams.set('wd', wd);
-    api.searchParams.set('pg', String(page));
-    const res = await fetchUpstream(api.href, {
-      timeoutMs: 8000,
-      headers: cmsRequestHeaders(),
-      signal,
-    });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    return res.json();
-  };
+  const fetchPage = (page: number) => getSourceAdapter(source).searchPage(source, wd, page, { timeoutMs: 8000, signal });
 
   const run = async (): Promise<SourceSearchOutcome> => {
     const first = await fetchPage(1);
-    const list = parseSearchList(first, source);
-    // 源站真实总页数与配置上限取较小者；pagecount 缺失或非法时视为 1 页
-    const rawPageCount = parseInt(String((first as { pagecount?: unknown }).pagecount ?? '1'), 10);
-    const pageCount = Math.min(Number.isFinite(rawPageCount) ? Math.max(1, rawPageCount) : 1, SEARCH_MAX_PAGES);
+    const list = [...first.list];
+    const pageCount = Math.min(first.pageCount, SEARCH_MAX_PAGES);
     if (pageCount > 1) {
       const extraPages = await mapWithConcurrency(
         Array.from({ length: pageCount - 1 }, (_, i) => i + 2), 3, async (page) => {
           try {
-            return parseSearchList(await fetchPage(page), source);
+            return (await fetchPage(page)).list;
           } catch {
             return [];
           }
@@ -215,7 +201,7 @@ export async function POST(req: Request) {
     try {
       const keys: unknown = body.sourceKeys ?? (Array.isArray(body.sources)
         ? body.sources.map((source) => source?.key) : undefined);
-      sources = await resolveServerSources(keys);
+      sources = await resolveServerSources(keys, req);
     } catch {
       return NextResponse.json({ error: '源配置无效或已更新，请刷新源列表' }, { status: 400 });
     }

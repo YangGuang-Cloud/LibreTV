@@ -68,8 +68,8 @@ export function saveServerSources(sources: SourceConfig[], revision: string): Pr
 }
 
 /** 客户端提交编号，服务端决定真实接口；客户端提供的 URL/名称/成人标记不参与决策。 */
-export async function resolveServerSources(keys?: unknown): Promise<SourceConfig[]> {
-  const { sources } = await readServerSources();
+export async function resolveServerSources(keys?: unknown, req?: Request): Promise<SourceConfig[]> {
+  const { sources } = req ? await (await import('./content-profiles')).readViewerSources(req) : await readServerSources();
   if (keys === undefined) return sources;
   if (!Array.isArray(keys) || keys.length > 50 || keys.some((key) => typeof key !== 'string')) {
     throw new Error('源编号列表无效');

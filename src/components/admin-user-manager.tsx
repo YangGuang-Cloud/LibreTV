@@ -4,10 +4,24 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { ConfirmDialog } from './confirm-dialog';
 import { AdminAccountDetailView } from './admin-account-detail';
 
-interface User { id: string; username: string; name: string; banned: number; passwordAvailable: boolean; access?: { state: string; expiresAt: number | null }; }
+interface ContentProfileOption { id: string; name: string; }
+
+interface User { id: string; username: string; name: string; banned: number; passwordAvailable: boolean; contentProfile?: ContentProfileOption; access?: { state: string; expiresAt: number | null }; }
 
 export function AdminUserManager({ onSessionExpired }: { onSessionExpired: () => void }) {
   const [users, setUsers] = useState<User[]>([]);
+  const [contentProfiles, setContentProfiles] = useState<ContentProfileOption[]>([]);
+  const [profileError, setProfileError] = useState('');
+  useEffect(() => {
+    const controller = new AbortController();
+    void fetch('/api/admin/content-profiles', { cache: 'no-store', signal: controller.signal }).then(async (response) => {
+      if (response.status === 401) { onSessionExpired(); return; }
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error || '内容方案读取失败');
+      if (!controller.signal.aborted) setContentProfiles(body.profiles);
+    }).catch((cause) => { if (!controller.signal.aborted) setProfileError(cause instanceof Error ? cause.message : '内容方案读取失败'); });
+    return () => controller.abort();
+  }, [onSessionExpired]);
   const [selectedUser, setSelectedUser] = useState<User | null>(null);
   const [detailRevision, setDetailRevision] = useState(0);
   const [total, setTotal] = useState(0);
@@ -90,6 +104,7 @@ export function AdminUserManager({ onSessionExpired }: { onSessionExpired: () =>
     finally { setBusy(false); }
   };
   const currentUser = selectedUser ? users.find((user) => user.id === selectedUser.id) || selectedUser : null;
+  const openDetail = (user: User) => { hidePassword(); setError(''); setMessage(''); setSelectedUser(user); };
   const closeDetail = () => { hidePassword(); setResetUser(null); setResetPassword(''); setDisableUser(null); setSelectedUser(null); setError(''); setMessage(''); };
   const accountActions = currentUser && <div className="space-y-3 border-t border-line pt-4">
     <div className="text-sm space-y-1"><p>账号授权：{currentUser.access?.state === 'active' ? '使用中' : currentUser.access?.state === 'expired' ? '已到期' : '待激活'}</p><p className="text-muted">到期时间：{currentUser.access?.expiresAt ? new Date(currentUser.access.expiresAt).toLocaleString('zh-CN') : currentUser.access?.state === 'active' ? '无限期' : '尚未激活'}</p></div>
@@ -118,14 +133,18 @@ export function AdminUserManager({ onSessionExpired }: { onSessionExpired: () =>
     {message && <p role="status" className="text-sm text-accent">{message}</p>}
     <div hidden={!!selectedUser} className="space-y-5">
       <p className="text-sm text-muted">请在「授权码管理」生成授权码，用户凭码自行注册账号和设置密码。</p>
+      {profileError && <p role="alert" className="text-sm text-danger">{profileError}</p>}
       <div className="card p-5 space-y-4">
         <div className="flex items-center justify-between gap-3"><h3 className="font-medium">全部账号（{total}）</h3><button className="btn-ghost text-sm" disabled={loading} onClick={() => void load()}>刷新</button></div>
         {loading && users.length === 0 ? <p className="text-muted text-sm py-8 text-center">正在读取…</p> : users.length === 0 ? <p className="text-muted text-sm py-8 text-center">暂无账号</p> : <div className="max-h-[65vh] overflow-y-auto overscroll-contain space-y-2 pr-1" aria-label="账号列表" tabIndex={0}>
-          {users.map((user) => <button key={user.id} className="w-full flex items-center gap-4 rounded-xl border border-line p-4 text-left hover:bg-chip transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent" onClick={() => { hidePassword(); setError(''); setMessage(''); setSelectedUser(user); }}>
-            <span className="flex-1 min-w-0"><span className="block font-medium truncate">{user.name}</span><span className="block text-sm text-muted truncate mt-1">{user.username}</span></span>
-            <span className={`rounded-full px-2.5 py-1 text-xs ${user.banned ? 'bg-danger/10 text-danger' : 'bg-accent/10 text-accent'}`}>{user.banned ? '已停用' : user.access?.state === 'active' ? '使用中' : user.access?.state === 'expired' ? '已到期' : '待激活'}</span>
-            <span className="text-sm text-muted">详情 ›</span>
-          </button>)}
+          {users.map((user) => <article key={user.id} className="grid grid-cols-[minmax(0,1fr)_minmax(0,8.5rem)] sm:grid-cols-[minmax(0,1fr)_12rem_auto] items-center gap-3 sm:gap-5 rounded-xl border border-line p-4">
+            <button className="min-w-0 text-left rounded-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent" onClick={() => openDetail(user)}>
+              <span className="flex flex-wrap items-center gap-x-2 gap-y-1"><span className="font-medium truncate">{user.name}</span><span className={`rounded-full px-2 py-0.5 text-[11px] ${user.banned ? 'bg-danger/10 text-danger' : 'bg-accent/10 text-accent'}`}>{user.banned ? '已停用' : user.access?.state === 'active' ? '使用中' : user.access?.state === 'expired' ? '已到期' : '待激活'}</span></span>
+              <span className="block text-xs text-muted truncate mt-1.5">{user.username}<span className="sm:hidden ml-2">›</span></span>
+            </button>
+            <AccountContentChoice user={user} profiles={contentProfiles} onSessionExpired={onSessionExpired} onSaved={(profile) => setUsers((current) => current.map((item) => item.id === user.id ? { ...item, contentProfile: profile } : item))} />
+            <button className="hidden sm:block btn-ghost text-sm" aria-label={`查看 ${user.username} 的详情`} onClick={() => openDetail(user)}>详情 ›</button>
+          </article>)}
         </div>}
         {total > 50 && <div className="flex flex-wrap items-center gap-4"><button className="btn-ghost" disabled={loading || offset === 0} onClick={() => setOffset(Math.max(0, offset - 50))}>上一页</button><span className="text-sm text-muted">第 {offset / 50 + 1} 页</span><button className="btn-ghost" disabled={loading || offset + 50 >= total} onClick={() => setOffset(offset + 50)}>下一页</button></div>}
       </div>
@@ -133,4 +152,35 @@ export function AdminUserManager({ onSessionExpired }: { onSessionExpired: () =>
     {selectedUser && <AdminAccountDetailView key={selectedUser.id} userId={selectedUser.id} revision={detailRevision} onSessionExpired={onSessionExpired} actions={accountActions} />}
     <ConfirmDialog open={!!disableUser} title={`停用账号 ${disableUser?.username || ''}？`} message="该账号将立即退出所有设备，无法再次登录。已有数据会保留，之后可重新启用。" confirmLabel="停用账号" danger onCancel={() => setDisableUser(null)} onConfirm={() => { const user = disableUser; setDisableUser(null); if (user) void mutate('PATCH', { userId: user.id, action: 'disable' }, '账号已停用'); }} />
   </section>;
+}
+
+function AccountContentChoice({ user, profiles, onSessionExpired, onSaved }: {
+  user: User; profiles: ContentProfileOption[]; onSessionExpired: () => void; onSaved: (profile: ContentProfileOption) => void;
+}) {
+  const current = user.contentProfile ?? { id: 'default', name: '默认方案' };
+  const [pending, setPending] = useState<string | null>(null);
+  const [error, setError] = useState('');
+  const [saved, setSaved] = useState(false);
+  async function change(id: string) {
+    if (pending !== null || id === current.id) return;
+    const profile = profiles.find((item) => item.id === id);
+    if (!profile) return;
+    setPending(id); setError(''); setSaved(false);
+    try {
+      const response = await fetch('/api/admin/content-profiles', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'assign', profileId: id, userIds: [user.id] }) });
+      if (response.status === 401) { onSessionExpired(); return; }
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error || '内容方案保存失败');
+      onSaved(profile); setSaved(true);
+    } catch (cause) { setError(cause instanceof Error ? cause.message : '内容方案保存失败'); }
+    finally { setPending(null); }
+  }
+  return <div className="min-w-0 space-y-1.5">
+    <div className="flex items-center justify-between gap-2 text-[11px] text-muted"><label htmlFor={`profile-${user.id}`}>内容方案</label><span role="status">{pending !== null ? '保存中…' : saved ? '已保存' : ''}</span></div>
+    <select id={`profile-${user.id}`} aria-label={`${user.username} 的内容方案`} className="input w-full min-w-0 text-sm !py-1.5" value={pending ?? current.id} disabled={pending !== null || !profiles.length} onChange={(event) => void change(event.target.value)}>
+      {!profiles.some((profile) => profile.id === current.id) && <option value={current.id}>{current.name}</option>}
+      {profiles.map((profile) => <option key={profile.id} value={profile.id}>{profile.name}</option>)}
+    </select>
+    {error && <p role="alert" className="text-xs text-danger">{error}，请重新选择。</p>}
+  </div>;
 }

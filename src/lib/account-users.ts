@@ -36,6 +36,7 @@ export interface ManagedUser {
   createdAt: number;
   passwordAvailable: boolean;
   access?: import('./account-licenses').AccountAccess;
+  contentProfile?: {id:string;name:string};
 }
 
 export async function listAccountUsers(offset = 0) {
@@ -45,7 +46,7 @@ export async function listAccountUsers(offset = 0) {
       ON credential.userId=vault.userId AND credential.providerId='credential' AND credential.password=vault.passwordHash
       WHERE vault.userId=user.id) AS passwordAvailable
     FROM user ORDER BY createdAt DESC, id LIMIT 50 OFFSET ?`).all(offset) as (Omit<ManagedUser, 'passwordAvailable'> & { passwordAvailable: number })[];
-  const users: ManagedUser[] = rows.map((row) => ({ ...row, access: accountAccess(database, row.id), passwordAvailable: row.passwordAvailable === 1 }));
+  const users: ManagedUser[] = rows.map((row) => ({ ...row, contentProfile: database.prepare('SELECT p.id,p.name FROM content_profile p JOIN account_content_profile a ON a.profileId=p.id WHERE a.userId=?').get(row.id) as {id:string;name:string} | undefined ?? {id:'default',name:'默认方案'}, access: accountAccess(database, row.id), passwordAvailable: row.passwordAvailable === 1 }));
   const { total } = database.prepare('SELECT COUNT(*) AS total FROM user').get() as { total: number };
   return { users, total, offset, limit: 50 };
 }

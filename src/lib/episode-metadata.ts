@@ -3,6 +3,7 @@ import { mkdir, readFile, writeFile, rename, unlink } from 'node:fs/promises';
 import path from 'node:path';
 import { meaningfulEpisodeTitle } from './episode-title';
 import { findAutomaticEpisodeMetadata, type EpisodeImport } from './episode-providers';
+import { sourceProtocolIdentity } from './source-config';
 import type { SourceConfig, VideoDetail } from './types';
 
 export interface EpisodeRecord {
@@ -18,7 +19,7 @@ export interface EpisodeRecord {
 }
 export interface EpisodeSnapshot { record: EpisodeRecord | null; revision: string; stale: boolean }
 const hash = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
-export const episodeRecordKey = (source: SourceConfig, id: string) => hash([source.key, source.url, id]);
+export const episodeRecordKey = (source: SourceConfig, id: string) => hash([source.key, source.url, id, ...sourceProtocolIdentity(source)]);
 export function episodeBinding(detail: VideoDetail): string {
   return hash([detail.videoInfo.title, detail.videoInfo.year, detail.episodes.map((url) => {
     try {

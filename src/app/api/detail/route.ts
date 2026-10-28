@@ -33,7 +33,7 @@ export async function GET(req: Request) {
   if (serverSourceMode()) {
     try {
       const key = url.searchParams.get('sourceKey') || source?.key;
-      source = key ? (await resolveServerSources([key]))[0] : null;
+      source = key ? (await resolveServerSources([key], req))[0] : null;
     } catch { source = null; }
   }
   const baseUrl = serverSourceMode() ? '' : (url.searchParams.get('baseUrl') || '').trim();

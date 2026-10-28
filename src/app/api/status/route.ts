@@ -5,9 +5,9 @@ import { getEnvSources } from '@/lib/env-sources';
 import { getEnvLiveSources } from '@/lib/env-live-sources';
 import { getEnvSubscriptions } from '@/lib/env-subscriptions';
 import { publicRecommendations, legacyRecommendationDefault } from '@/lib/recommendation-config';
-import { readRecommendations } from '@/lib/server-recommendations';
+import { readViewerSnapshot, readViewerRecommendations } from '@/lib/content-profiles';
 import { getEnvImageMode } from '@/lib/env-image-mode';
-import { readServerSources, serverSourceMode } from '@/lib/server-sources';
+import { serverSourceMode } from '@/lib/server-sources';
 
 export const runtime = 'nodejs';
 
@@ -19,16 +19,17 @@ export async function GET(req: Request) {
   const authorization = session ? (await import('@/lib/account-licenses')).accountAccess((await (await import('@/lib/account-auth')).getAccountAuth()).database, session.user.id) : null;
   const verified = accountMode() ? !!session && authorization?.state === 'active' : await viewerSession(req);
   const managed = serverSourceMode();
+  let contentRevision: string | undefined;
+  let contentProfile: {id:string;name:string}|undefined;
   let sources = verified ? getEnvSources() : [];
-  if (verified && managed) {
-    try { sources = (await readServerSources()).sources; }
-    catch { return NextResponse.json({ error: '服务器源配置读取失败' }, { status: 500 }); }
-  }
   let recommendations;
-  if (verified) {
-    try { recommendations = await readRecommendations(); }
-    catch { return NextResponse.json({ error: '推荐配置读取失败' }, { status: 500 }); }
-  }
+  try {
+    if (verified && managed) {
+      const snapshot=await readViewerSnapshot(req);
+      sources=snapshot.sources.sources;contentRevision=snapshot.sources.revision;
+      contentProfile=snapshot.profile;recommendations=snapshot.recommendations;
+    } else if (verified) recommendations=await readViewerRecommendations(req);
+  } catch { return NextResponse.json({error:'服务器内容配置读取失败，请稍后重试'},{status:500}); }
   return NextResponse.json({
     passwordRequired,
     verified,
@@ -42,6 +43,8 @@ export async function GET(req: Request) {
     buildId: process.env.APP_BUILD_ID || 'local',
     // 部署者通过 DEFAULT_SOURCES 预置的采集站
     defaultSources: sources,
+    contentRevision,
+    contentProfile,
     // 部署者通过 DEFAULT_LIVE_SOURCES 预置的直播源（M3U 订阅）
     defaultLiveSources: verified ? getEnvLiveSources() : [],
     // 部署者通过 DEFAULT_SUBSCRIPTIONS 预置的 SourceList 订阅链接

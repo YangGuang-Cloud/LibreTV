@@ -1,3 +1,4 @@
+import { legacyRecommendationAllowed } from '@/lib/content-profiles';
 import { NextResponse } from 'next/server';
 import { guardRequest } from '@/lib/api-guard';
 import { fetchDoubanRecommend } from '@/lib/douban';
@@ -8,6 +9,7 @@ export const runtime = 'nodejs';
 export async function GET(req: Request) {
   const guarded = await guardRequest(req);
   if (guarded) return guarded;
+  if (!await legacyRecommendationAllowed(req)) return NextResponse.json({error:'主页内容已变更，请刷新内容配置'}, {status:403,headers:{'Cache-Control':'private, no-store'}});
 
   const url = new URL(req.url);
   const type = url.searchParams.get('type') === 'tv' ? 'tv' : 'movie';

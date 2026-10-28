@@ -1,9 +1,9 @@
 import { NextResponse } from 'next/server';
 import { guardRequest } from '@/lib/api-guard';
-import { readServerSources, serverSourceMode } from '@/lib/server-sources';
+import { serverSourceMode } from '@/lib/server-sources';
 
 import { publicRecommendations } from '@/lib/recommendation-config';
-import { readRecommendations } from '@/lib/server-recommendations';
+import { readViewerSnapshot } from '@/lib/content-profiles';
 
 export const runtime = 'nodejs';
 
@@ -13,10 +13,11 @@ export async function GET(req: Request) {
   if (guarded) return guarded;
   if (!serverSourceMode()) return NextResponse.json({ error: '未开启服务器源管理模式' }, { status: 409 });
   try {
-    const { sources, revision } = await readServerSources();
+    const snapshot = await readViewerSnapshot(req);
+    const { sources, revision } = snapshot.sources;
     return NextResponse.json({
-      apiVersion: 1, sourceMode: 'server', revision,
-      recommendations: publicRecommendations(await readRecommendations()),
+      apiVersion: 1, sourceMode: 'server', revision, contentProfile:snapshot.profile,
+      recommendations: publicRecommendations(snapshot.recommendations),
       sources: sources.map(({ key, name, isAdult }) => ({ key, name, isAdult: isAdult === true })),
     }, { headers: { 'Cache-Control': 'private, no-store' } });
   } catch {

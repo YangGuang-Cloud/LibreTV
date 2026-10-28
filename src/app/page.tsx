@@ -40,6 +40,7 @@ function HomeContent() {
   // 精确订阅所需字段（对齐 live 页的做法）：搜索流式期间逐源写健康度、
   // 打开设置抽屉/历史面板等无关 store 变化，都不应触发首页整树重渲染
   const customAPIs = useAppStore((s) => s.customAPIs);
+  const contentRevision = useAppStore(s => s.contentRevision);
   const envSources = useAppStore((s) => s.envSources);
   const selectedKeys = useAppStore((s) => s.selectedKeys);
   const yellowFilter = useAppStore((s) => s.yellowFilter);
@@ -51,6 +52,7 @@ function HomeContent() {
   /** 流式搜索中已结算的源（data 就绪前用于增量渲染） */
   const [streamedOutcomes, setStreamedOutcomes] = useState<SourceSearchOutcome[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
+  useEffect(() => { setStreamedOutcomes([]); setDetailItem(null); }, [contentRevision]);
 
   // URL 驱动搜索：?s= 变化时回填输入框
   useEffect(() => {
@@ -93,7 +95,7 @@ function HomeContent() {
   );
 
   const searchQuery = useQuery({
-    queryKey: ['search', urlQuery, selectedKeys, yellowFilter],
+    queryKey: ['search', urlQuery, selectedKeys, yellowFilter, contentRevision],
     // 与 runSearch 的截断规则保持一致：顶栏搜索 / 手动构造长链接不会绕过上限
     queryFn: ({ signal }) => {
       setStreamedOutcomes([]);
@@ -101,6 +103,7 @@ function HomeContent() {
         signal,
         // 逐源结算即更新：结果边搜边渲染，同时滚动健康度
         onSource: (outcome) => {
+          if (signal.aborted || useAppStore.getState().contentRevision !== contentRevision) return;
           setStreamedOutcomes((prev) => [...prev, outcome]);
           for (const ev of useAppStore.getState().recordSourceHealth([outcome])) {
             toast(

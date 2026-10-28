@@ -1,4 +1,4 @@
-// 采集站（Apple CMS 资源站）描述
+// 点播源配置；第三方协议由服务端适配器转换。
 export interface SourceConfig {
   /** 唯一标识，如 "custom_0"；内置源直接用短名 */
   key: string;
@@ -8,6 +8,8 @@ export interface SourceConfig {
   /** 可选：详情页根地址（部分源需要爬详情页提取 m3u8） */
   detail?: string;
   isAdult?: boolean;
+  /** 省略时兼容已有苹果 CMS 来源。 */
+  adapter?: import('./source-adapter-catalog').SourceAdapterID;
 }
 
 export interface SearchResultItem {
@@ -95,6 +97,8 @@ export interface BangumiCalendarResponse {
 }
 
 export interface AuthStatusResponse {
+  contentRevision?: string;
+  contentProfile?: { id: string; name: string };
   authorization?: import('./account-licenses').AccountAccess | null;
   registrationRequiresCode?: boolean;
   recommendations?: import('./recommendation-config').RecommendationSnapshot | null;

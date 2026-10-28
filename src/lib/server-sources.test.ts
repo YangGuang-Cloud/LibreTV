@@ -25,6 +25,12 @@ describe('服务器源持久化', () => {
     await saveServerSources([], (await readServerSources()).revision);
     expect((await readServerSources()).sources).toEqual([]);
   });
+  it('适配类型可以持久化，未知类型在保存前被拒绝', async () => {
+    const saved = await saveServerSources([{ ...source, adapter: 'apple-cms' }], (await readServerSources()).revision);
+    expect((await readServerSources()).sources[0].adapter).toBe('apple-cms');
+    expect(() => saveServerSources([{ ...source, adapter: 'unknown' } as never], saved.revision)).toThrow('无效');
+    expect(await readServerSources()).toEqual(saved);
+  });
   it('并发提交同一旧版本只有一个成功，避免覆盖', async () => {
     const { revision } = await readServerSources();
     const results = await Promise.allSettled([

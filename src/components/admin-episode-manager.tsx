@@ -8,7 +8,7 @@ import { formatEpisodeLabel, meaningfulEpisodeTitle } from '@/lib/episode-title'
 
 interface Snapshot extends EpisodeSnapshot { raw: VideoDetail; detail: VideoDetail }
 
-export function AdminEpisodeManager({ onSessionExpired }: { onSessionExpired: () => void }) {
+export function AdminEpisodeManager({ onSessionExpired, profileId = 'default' }: { onSessionExpired: () => void; profileId?: string }) {
   const [sources, setSources] = useState<SourceConfig[]>([]);
   const [sourceKey, setSourceKey] = useState('');
   const [query, setQuery] = useState('');
@@ -27,17 +27,19 @@ export function AdminEpisodeManager({ onSessionExpired }: { onSessionExpired: ()
 
   useEffect(() => {
     const controller = new AbortController();
-    void fetch('/api/admin/sources', { cache: 'no-store', signal: controller.signal }).then(async (res) => {
+    void fetch(`/api/admin/episodes?action=sources&profileId=${encodeURIComponent(profileId)}`, { cache: 'no-store', signal: controller.signal }).then(async (res) => {
       if (res.status === 401) { onSessionExpired(); return; }
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || '来源读取失败');
       setSources(data.sources); setSourceKey(data.sources[0]?.key ?? '');
     }).catch((cause) => { if (!controller.signal.aborted) setError(cause instanceof Error ? cause.message : '来源读取失败'); });
     return () => controller.abort();
-  }, [onSessionExpired]);
+  }, [onSessionExpired, profileId]);
 
   async function request(body?: unknown, params?: string) {
-    const res = await fetch(`/api/admin/episodes${params ? `?${params}` : ''}`, body ? {
+    const searchParams = new URLSearchParams(params);
+    searchParams.set('profileId', profileId);
+    const res = await fetch(`/api/admin/episodes?${searchParams.toString()}`, body ? {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
     } : { cache: 'no-store' });
     if (res.status === 401) { onSessionExpired(); throw new Error('后台登录已过期'); }

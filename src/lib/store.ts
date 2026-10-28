@@ -176,6 +176,7 @@ interface AppState extends AppSettings {
   recommendationConfig: import('./recommendation-config').RecommendationSnapshot | null;
   /** 服务器模式下仅使用管理员下发的点播源，不持久化。 */
   serverSourceMode: boolean;
+  contentRevision: string | null;
   /** 部署者通过 DEFAULT_SOURCES 环境变量预置的源（服务端下发，不持久化） */
   envSources: SourceConfig[];
   /** 已向用户展示过并自动勾选过的预置源 key（持久化：用户取消勾选后不再反复勾上） */
@@ -272,6 +273,7 @@ function nextCustomKey(apiList: SourceConfig[]): string {
 export const useAppStore = create<AppState>()(
     (set, get) => ({
       serverSourceMode: false,
+      contentRevision: null,
       recommendationConfig: null,
       customAPIs: [],
       envSources: [],

@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { guardRequest } from '@/lib/api-guard';
-import { readRecommendations } from '@/lib/server-recommendations';
+import { readViewerRecommendations } from '@/lib/content-profiles';
 import { loadRecommendationFeed } from '@/lib/recommendation-feed';
 import { validRecommendationID } from '@/lib/recommendation-config';
 import type { DoubanItem } from '@/lib/types';
@@ -13,7 +13,7 @@ export async function GET(req: Request) {
   const sourceId = params.get('source'), feedId = params.get('feed');
   if (!validRecommendationID(sourceId) || !validRecommendationID(feedId)) return NextResponse.json({ error: '来源或分类编号无效' }, { status: 400, headers });
   try {
-    const config = await readRecommendations();
+    const config = await readViewerRecommendations(req);
     const source = config.sources.find((source) => source.enabled && source.id === sourceId);
     const feed = source?.feeds?.find((feed) => feed.id === feedId);
     if (!feed) return NextResponse.json({ error: '推荐来源已变更，请刷新配置' }, { status: 404, headers });

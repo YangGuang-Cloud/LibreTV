@@ -13,7 +13,7 @@ function sourceChanged(source: RecommendationSource, saved: RecommendationSnapsh
 }
 type Confirmation = { title: string; message: string; action: () => void };
 
-export function AdminRecommendationManager({ onSessionExpired }: { onSessionExpired: () => void }) {
+export function AdminRecommendationManager({ onSessionExpired, endpoint = '/api/admin/recommendations', navigationBase = '/admin?tab=content&profile=default&part=home' }: { onSessionExpired: () => void; endpoint?: string; navigationBase?: string }) {
   const router = useRouter();
   const sourceId = useSearchParams().get('source');
   const [saved, setSaved] = useState<RecommendationSnapshot | null>(null);
@@ -26,13 +26,13 @@ export function AdminRecommendationManager({ onSessionExpired }: { onSessionExpi
   const dirty = !!saved && JSON.stringify({ sources: saved.sources, defaultSource: saved.defaultSource }) !== JSON.stringify(draft);
   const source = draft.sources.find((item) => item.id === sourceId);
   const navigate = (id?: string) => {
-    router.push(`/admin?tab=recommendations${id ? `&source=${encodeURIComponent(id)}` : ''}`, { scroll: false });
+    router.push(`${navigationBase}${id ? `&source=${encodeURIComponent(id)}` : ''}`, { scroll: false });
     window.scrollTo({ top: 0 });
   };
   const load = useCallback(async (signal?: AbortSignal) => {
     setBusy(true); setError(''); setMessage('');
     try {
-      const res = await fetch('/api/admin/recommendations', { cache: 'no-store', signal });
+      const res = await fetch(endpoint, { cache: 'no-store', signal });
       if (res.status === 401) { onSessionExpired(); return; }
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || '推荐配置读取失败');
@@ -40,7 +40,7 @@ export function AdminRecommendationManager({ onSessionExpired }: { onSessionExpi
       setEditorVersion((version) => version + 1);
     } catch (cause) { if (!signal?.aborted) setError(cause instanceof Error ? cause.message : '推荐配置读取失败'); }
     finally { if (!signal?.aborted) setBusy(false); }
-  }, [onSessionExpired]);
+  }, [onSessionExpired, endpoint]);
   useEffect(() => { const controller = new AbortController(); void load(controller.signal); return () => controller.abort(); }, [load]);
   useEffect(() => {
     if (!dirty) return;
@@ -52,7 +52,7 @@ export function AdminRecommendationManager({ onSessionExpired }: { onSessionExpi
     if (!saved) return;
     setBusy(true); setError(''); setMessage('');
     try {
-      const res = await fetch('/api/admin/recommendations', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...draft, revision: saved.revision }) });
+      const res = await fetch(endpoint, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...draft, revision: saved.revision }) });
       if (res.status === 401) { onSessionExpired(); return; }
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || '推荐配置保存失败');

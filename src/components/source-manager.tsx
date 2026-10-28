@@ -393,7 +393,7 @@ function VodSourcesPanel() {
                   testState={tests[source.key]}
                   onTest={() =>
                     runTest(source.key, async () => {
-                      const r = await api.testSource(source.url);
+                      const r = await api.testSource(source.url, source);
                       // 手动测试也写入健康度，与搜索 / 批量测活共用同一份模型（不再存在两套健康度）
                       useAppStore.getState().recordSourceHealth([
                         { sourceKey: source.key, ok: r.ok, ms: r.ms, error: r.error, list: [] },

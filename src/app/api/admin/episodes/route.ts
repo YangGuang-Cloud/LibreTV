@@ -1,8 +1,9 @@
+import { ContentProfileError } from '@/lib/content-profiles';
+import { readAdminEpisodeSources } from '@/lib/admin-profile-config';
 import { NextResponse } from 'next/server';
 import { guardAdminRequest } from '@/lib/admin-guard';
-import { resolveServerSources, serverSourceMode } from '@/lib/server-sources';
-import { cmsRequestHeaders, parseSearchList } from '@/lib/cms-parser';
-import { fetchUpstream } from '@/lib/fetch-utils';
+import { serverSourceMode } from '@/lib/server-sources';
+import { getSourceAdapter } from '@/lib/source-adapters';
 import { DetailLoadError, loadVideoDetail } from '@/lib/video-detail';
 import { clearImportedEpisodeTitles, enrichEpisodeTitles, EpisodeRevisionConflict, mergeEpisodeTitles, readEpisodeSnapshot, saveImportedEpisodeTitles, saveManualEpisodeTitles } from '@/lib/episode-metadata';
 import { importEpisodeMetadata, searchEpisodeMetadata, sourceEpisodeOrderIsRegular, type EpisodeProvider } from '@/lib/episode-providers';
@@ -18,19 +19,20 @@ function inputText(value: unknown, name: string, max = 160): string {
 function check(req: Request) {
   return guardAdminRequest(req) || (!serverSourceMode() ? reply({ error: '未开启服务器源管理模式' }, 409) : null);
 }
-async function sourceFor(value: unknown) { return (await resolveServerSources([inputText(value, '源编号')]))[0]; }
+async function sourceFor(req: Request, value: unknown) { const key=inputText(value,'源编号'); const sources=await readAdminEpisodeSources(req); const found=sources.find(source=>source.key===key); if(!found)bad('点播源不存在'); return found!; }
 function filmId(value: unknown) { const id = inputText(value, '影片编号'); if (!/^[\w-]+$/.test(id)) bad('影片编号无效'); return id; }
 function providerFor(value: unknown): EpisodeProvider { if (value !== 'bangumi' && value !== 'tvmaze') return bad('资料提供方无效'); return value; }
 function revisionFor(value: unknown): string { const revision = inputText(value, '版本'); if (!/^[a-f0-9]{64}$/.test(revision)) bad('版本无效'); return revision; }
 function failed(error: unknown) {
-  return reply({ error: error instanceof Error ? error.message : '分集资料操作失败' }, error instanceof EpisodeRevisionConflict ? 409 : error instanceof DetailLoadError ? error.status : 502);
+  return reply({ error: error instanceof Error ? error.message : '分集资料操作失败' }, error instanceof EpisodeRevisionConflict ? 409 : error instanceof DetailLoadError || error instanceof ContentProfileError ? error.status : 502);
 }
 
 export async function GET(req: Request) {
   const guarded = check(req); if (guarded) return guarded;
   try {
     const params = new URL(req.url).searchParams;
-    const source = await sourceFor(params.get('sourceKey'));
+    if (params.get('action') === 'sources') return reply({ sources: await readAdminEpisodeSources(req) });
+    const source = await sourceFor(req, params.get('sourceKey'));
     const id = filmId(params.get('id'));
     const raw = await loadVideoDetail(source, id, req.signal);
     await enrichEpisodeTitles(source, id, raw);
@@ -52,13 +54,10 @@ export async function POST(req: Request) {
       const provider = providerFor(fields.provider);
       return reply({ candidates: await searchEpisodeMetadata(provider, inputText(fields.query, '片名'), req.signal) });
     }
-    const source = await sourceFor(fields.sourceKey);
+    const source = await sourceFor(req, fields.sourceKey);
     if (fields.action === 'search') {
-      const url = new URL(source.url);
-      url.searchParams.set('ac', 'list'); url.searchParams.set('wd', inputText(fields.query, '片名')); url.searchParams.set('pg', '1');
-      const res = await fetchUpstream(url.href, { timeoutMs: 10000, headers: cmsRequestHeaders(), signal: req.signal });
-      if (!res.ok) throw new Error('资源搜索暂不可用');
-      return reply({ list: parseSearchList(await res.json(), source).slice(0, 30) });
+      const page = await getSourceAdapter(source).searchPage(source, inputText(fields.query, '片名'), 1, { timeoutMs: 10000, signal: req.signal });
+      return reply({ list: page.list.slice(0, 30) });
     }
     const id = filmId(fields.vodId);
     const raw = await loadVideoDetail(source, id, req.signal);

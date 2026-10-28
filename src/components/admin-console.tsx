@@ -3,11 +3,9 @@
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
-import { AdminSourceManager } from './admin-source-manager';
-import { AdminEpisodeManager } from './admin-episode-manager';
-import { AdminRecommendationManager } from './admin-recommendation-manager';
 import { AdminAccountMenu, type AdminIdentity } from './admin-account-menu';
 import { AdminOverviewPanel } from './admin-overview';
+import { AdminContentProfiles } from './admin-content-profiles';
 import { AdminLicenseManager } from './admin-license-manager';
 import { AdminUserManager } from './admin-user-manager';
 
@@ -32,7 +30,14 @@ export function AdminConsole() {
   const router = useRouter();
   const params = useSearchParams();
   const tab = params.get('tab');
-  const section = tab === 'licenses' || tab === 'sources' || tab === 'episodes' || tab === 'users' || tab === 'recommendations' ? tab : 'overview';
+  const section = tab === 'sources' || tab === 'recommendations' || tab === 'episodes' ? 'content' : tab === 'content' || tab === 'licenses' || tab === 'users' ? tab : 'overview';
+  useEffect(() => {
+    if (tab !== 'sources' && tab !== 'recommendations' && tab !== 'episodes') return;
+    const next = new URLSearchParams(params.toString());
+    next.set('tab', 'content'); next.set('profile', 'default');
+    next.set('part', tab === 'recommendations' ? 'home' : tab === 'episodes' ? 'episodes' : 'sources');
+    router.replace(`/admin?${next.toString()}`);
+  }, [tab, params, router]);
   const setSection = (next: string) => router.push(`/admin?tab=${next}`);
   const sessionExpired = useCallback(() => setStatus((current) => current ? { ...current, verified: false, user: null, expiresAt: null } : current), []);
 
@@ -98,13 +103,11 @@ export function AdminConsole() {
         {status?.verified && <>
           <nav className="flex flex-wrap gap-3 mb-7" aria-label="后台功能">
             <button className={section === 'overview' ? 'btn-primary' : 'btn-ghost'} onClick={() => setSection('overview')}>总览</button>
-            <button className={section === 'recommendations' ? 'btn-primary' : 'btn-ghost'} onClick={() => setSection('recommendations')}>首页推荐</button>
-            <button className={section === 'sources' ? 'btn-primary' : 'btn-ghost'} onClick={() => setSection('sources')}>点播源</button>
-            <button className={section === 'episodes' ? 'btn-primary' : 'btn-ghost'} onClick={() => setSection('episodes')}>分集资料</button>
+            <button className={section === 'content' ? 'btn-primary' : 'btn-ghost'} onClick={() => setSection('content')}>内容方案</button>
             <button className={section === 'users' ? 'btn-primary' : 'btn-ghost'} onClick={() => setSection('users')}>账号管理</button>
             <button className={section === 'licenses' ? 'btn-primary' : 'btn-ghost'} onClick={() => setSection('licenses')}>授权码管理</button>
           </nav>
-          {section === 'licenses' ? <AdminLicenseManager onSessionExpired={sessionExpired} /> : section === 'overview' ? <AdminOverviewPanel onSessionExpired={sessionExpired} /> : section === 'recommendations' ? <AdminRecommendationManager onSessionExpired={sessionExpired} /> : section === 'users' ? (status.accountMode && status.accountConfigured ? <AdminUserManager onSessionExpired={sessionExpired} /> : <div className="card p-6"><h2 className="font-semibold">账号模式尚未开启</h2><p className="mt-2 text-sm text-muted">在服务器配置 AUTH_MODE=account、BETTER_AUTH_URL 和 BETTER_AUTH_SECRET，然后重启服务。开启后可生成授权码，让用户凭码注册账号。</p></div>) : status.sourceMode !== 'server' ? <div className="card p-6"><h2 className="font-semibold">请开启服务器源管理模式</h2><p className="mt-2 text-sm text-muted">将服务器环境配置中的 SOURCE_MODE 设为 server，然后重启服务。</p></div> : section === 'sources' ? <AdminSourceManager onSessionExpired={sessionExpired} /> : <AdminEpisodeManager onSessionExpired={sessionExpired} />}
+          {section === 'content' ? <AdminContentProfiles onSessionExpired={sessionExpired} /> : section === 'licenses' ? <AdminLicenseManager onSessionExpired={sessionExpired} /> : section === 'overview' ? <AdminOverviewPanel onSessionExpired={sessionExpired} /> : section === 'users' ? (status.accountMode && status.accountConfigured ? <AdminUserManager onSessionExpired={sessionExpired} /> : <div className="card p-6"><h2 className="font-semibold">账号模式尚未开启</h2><p className="mt-2 text-sm text-muted">在服务器配置 AUTH_MODE=account、BETTER_AUTH_URL 和 BETTER_AUTH_SECRET，然后重启服务。开启后可生成授权码，让用户凭码注册账号。</p></div>) : status.sourceMode !== 'server' ? <div className="card p-6"><h2 className="font-semibold">请开启服务器源管理模式</h2><p className="mt-2 text-sm text-muted">将服务器环境配置中的 SOURCE_MODE 设为 server，然后重启服务。</p></div> : null}
         </>}
       </main>
     </div>

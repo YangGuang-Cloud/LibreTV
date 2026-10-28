@@ -43,7 +43,7 @@ export function useSourceProbe() {
     setProgress(null);
   }, []);
 
-  const probe = useCallback(async (sources: { key: string; url: string }[]) => {
+  const probe = useCallback(async (sources: { key: string; url: string; adapter?: import('@/lib/source-adapter-catalog').SourceAdapterID }[]) => {
     if (sources.length === 0) return;
     const runId = ++runIdRef.current;
     const total = sources.length;
@@ -71,7 +71,7 @@ export function useSourceProbe() {
         const source = sources[index];
         let outcome: SourceSearchOutcome;
         try {
-          const r = await api.testSource(source.url);
+          const r = await api.testSource(source.url, source);
           outcome = { sourceKey: source.key, ok: r.ok, ms: r.ms, error: r.error, list: [] };
         } catch (err) {
           outcome = {

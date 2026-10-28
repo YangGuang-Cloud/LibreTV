@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import { initializeDevices, deviceSessionAllowed, bindDevice, requestDevice, logoutSessionDevice } from './account-devices';
 import { checkRateLimit, clearRateLimit, rateLimitRetryAfter } from './auth';
 import { initializeLicenses, accountAccess } from './account-licenses';
 import path from 'node:path';
@@ -10,7 +11,7 @@ import { accountConfigured } from './account-mode';
 import { initializePasswordVault, passwordVaultKey, captureManagedPassword } from './account-password-vault';
 import { initializeSyncSchema } from './sync-schema';
 import { initializeAccountActivity } from './account-activity';
-import { initializeAccountLoginState, recordAccountLogin } from './account-login-state';
+import { initializeAccountLoginState } from './account-login-state';
 
 function createAccountAuth() {
   if (!accountConfigured()) throw new Error('请配置 BETTER_AUTH_URL 和至少 32 字符的 BETTER_AUTH_SECRET');
@@ -33,11 +34,6 @@ function createAccountAuth() {
     session: { expiresIn: 30 * 24 * 60 * 60, updateAge: 24 * 60 * 60, cookieCache: { enabled: false } },
     rateLimit: { enabled: true, window: 60, max: 60, customRules: { '/sign-in/username': false } },
     plugins: [username({ minUsernameLength: 3, maxUsernameLength: 32, usernameNormalization: false }), admin()],
-    databaseHooks: {
-      session: { create: { after: async (session, context) => {
-        if (context?.path === '/sign-in/username' && accountAccess(database, session.userId).state === 'active') recordAccountLogin(database, session.userId, session.createdAt.getTime());
-      } } },
-    },
   });
   return { auth, database };
 }
@@ -57,6 +53,7 @@ export function getAccountAuth(): Promise<AccountAuth> {
         initializePasswordVault(state.database);
         initializeAccountLoginState(state.database);
         initializeAccountActivity(state.database);
+        initializeDevices(state.database);
         return state;
       } catch (error) { state.database.close(); throw error; }
     })().catch((error) => { globalAccounts.lunaAccounts = undefined; throw error; });
@@ -64,11 +61,18 @@ export function getAccountAuth(): Promise<AccountAuth> {
   return globalAccounts.lunaAccounts;
 }
 
-export async function getAccountSession(headers: Headers, allowExpired = false) {
+/** Internal credential identity only; callers must bind a device before issuing login cookies. */
+export async function getAccountIdentity(headers: Headers) {
   const { auth } = await getAccountAuth();
   const session = await auth.api.getSession({ headers, query: { disableCookieCache: true } });
-  if (!session || session.user.banned) return null;
-  return allowExpired || accountAccess((await getAccountAuth()).database, session.user.id).state === 'active' ? session : null;
+  return !session || session.user.banned ? null : session;
+}
+export async function getAccountSession(headers: Headers, allowExpired = false) {
+  const session = await getAccountIdentity(headers);
+  if (!session) return null;
+  const { database } = await getAccountAuth();
+  if (!deviceSessionAllowed(database, headers, session.session.id, session.user.id)) return null;
+  return allowExpired || accountAccess(database, session.user.id).state === 'active' ? session : null;
 }
 
 /** 管理操作只从现有独立管理员会话进入；不向浏览器暴露框架的管理端点。 */
@@ -111,12 +115,25 @@ export async function accountAuthHandler(req: Request): Promise<Response> {
       }
     }
   }
+  const signingOut = req.method === 'POST' && new URL(req.url).pathname === '/api/auth/sign-out';
+  const exiting = signingOut ? await getAccountSession(req.headers, true) : null;
+  // Revoke this device before awaiting framework sign-out, to avoid revoking a later replacement login.
+  if (exiting) logoutSessionDevice(database, exiting.session.id, exiting.user.id);
   const response = await auth.handler(req);
   if (isLogin && response.ok) clearRateLimit(loginLimitKey);
   if (response.ok && change) {
     // 更新失败时 hash 绑定仍会使旧副本不可查看；不将已完成的改密误报为失败。
     try { await captureManagedPassword(database, change.key, change.userId, change.password); }
     catch { /* 登录哈希已更新，管理员列表会标记为需重置后查看 */ }
+    if (response.headers.getSetCookie().length) {
+      const updatedHeaders = new Headers(req.headers);
+      updatedHeaders.set('cookie', response.headers.getSetCookie().map(value => value.split(';')[0]).join('; '));
+      const updated = await getAccountIdentity(updatedHeaders);
+      if (updated && updated.user.id === change.userId) {
+        try { bindDevice(database, req, updated.user.id, updated.session.id, requestDevice(req.headers)!); }
+        catch { database.prepare('DELETE FROM session WHERE id=?').run(updated.session.id); }
+      }
+    }
   }
   return response;
 }

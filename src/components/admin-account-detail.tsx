@@ -1,5 +1,6 @@
 'use client';
 
+import { AdminDeviceManager } from './admin-device-manager';
 import { useEffect, useState, type ReactNode } from 'react';
 import type { AdminAccountDetail, AdminAccountRecord, AdminAccountSection } from '@/lib/account-admin-model';
 import { describeSessionDevice } from '@/lib/session-device';
@@ -115,6 +116,7 @@ export function AdminAccountDetailView({ userId, revision, onSessionExpired, act
       <details className="text-xs text-muted"><summary className="cursor-pointer">账号编号</summary><p className="mt-2 break-all">{detail.user.id}</p></details>
       {actions}
     </div>}
+    <AdminDeviceManager key={userId} userId={userId} onSessionExpired={onSessionExpired} />
     <div className="card p-5 space-y-4">
       <div className="flex items-center justify-between gap-3"><h3 className="font-medium">账号数据</h3><button className="btn-ghost text-sm" disabled={loading} onClick={() => setReload((value) => value + 1)}>刷新</button></div>
       <div className="flex gap-2 overflow-x-auto pb-2" aria-label="账号数据分类">

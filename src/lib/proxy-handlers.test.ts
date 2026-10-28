@@ -1,8 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { handleProxyRequest } from './proxy-handlers';
-import { SESSION_COOKIE, signSession } from './auth';
+import { SESSION_COOKIE, signSession, signMediaURL } from './auth';
+import { mediaSessionAllowed } from './account-media-session';
 import { fetchWithSafeRedirects } from './fetch-utils';
 
+vi.mock('./account-auth', () => ({ getAccountSession: vi.fn(async () => null) }));
+vi.mock('./account-media-session', () => ({ mediaSessionAllowed: vi.fn() }));
 vi.mock('./fetch-utils', () => ({ fetchWithSafeRedirects: vi.fn() }));
 vi.mock('node:dns/promises', () => ({ default: { lookup: vi.fn(async () => [{ address: '8.8.8.8', family: 4 }]) } }));
 beforeEach(() => vi.stubEnv('PASSWORD', 'test'));
@@ -37,4 +40,16 @@ describe('代理鉴权与缓存', () => {
     vi.mocked(fetchWithSafeRedirects).mockResolvedValue({ res: new Response('{}', { headers: { 'content-type': 'application/json' } }), finalUrl: url });
     expect((await handleProxyRequest(req(false), url)).status).toBe(401);
   });
+});
+
+it('账号模式投屏签名绑定会话，分片沿用绑定，解绑后旧链接不能继续请求', async () => {
+  vi.stubEnv('AUTH_MODE','account'); vi.stubEnv('BETTER_AUTH_URL','https://local.test'); vi.stubEnv('BETTER_AUTH_SECRET','test-secret-with-at-least-32-characters');
+  const target='https://8.8.8.8/list.m3u8', session='bound-session-123', expires=Date.now()+60000;
+  const url=`https://local.test/api/proxy?mediaExpires=${expires}&mediaSession=${session}&mediaSignature=${signMediaURL(target,expires,session)}`;
+  vi.mocked(mediaSessionAllowed).mockResolvedValue(true);
+  vi.mocked(fetchWithSafeRedirects).mockResolvedValue({res:new Response('#EXTM3U\n#EXTINF:5,\nseg.ts\n',{headers:{'content-type':'application/vnd.apple.mpegurl'}}),finalUrl:target});
+  const response=await handleProxyRequest(new Request(url),target);expect(response.status).toBe(200);
+  const text=await response.text();expect(text).toContain(`mediaSession=${session}`);expect(text).toContain(signMediaURL('https://8.8.8.8/seg.ts',expires,session));
+  vi.mocked(mediaSessionAllowed).mockResolvedValue(false);vi.mocked(fetchWithSafeRedirects).mockClear();
+  expect((await handleProxyRequest(new Request(url),target)).status).toBe(401);expect(fetchWithSafeRedirects).not.toHaveBeenCalled();
 });

@@ -12,7 +12,7 @@ const base = 'http://localhost:8080';
 let directory: string;
 let sequence = 0;
 const request = (route: string, body: unknown, cookie?: string) => new Request(base + route, {
-  method: 'POST', headers: { origin: base, 'content-type': 'application/json', 'x-forwarded-for': `192.0.2.${++sequence}`, ...(cookie ? { cookie } : {}) }, body: JSON.stringify(body),
+  method: 'POST', headers: { origin: base, 'content-type': 'application/json', 'x-luna-device-id': '11111111-1111-4111-8111-111111111111', 'x-forwarded-for': `192.0.2.${++sequence}`, ...(cookie ? { cookie } : {}) }, body: JSON.stringify(body),
 });
 const cookies = (response: Response) => response.headers.getSetCookie().map(value => value.split(';')[0]).join('; ');
 async function issue() { return generateLicenses((await getAccountAuth()).database, { count: 1, days: 30, redeemBefore: null })[0]; }

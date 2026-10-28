@@ -22,7 +22,7 @@ let adminCookie: string;
 const password = 'Test-password-12345';
 const url = 'http://localhost:8080';
 function request(route: string, method = 'GET', body?: unknown, cookie?: string, origin = url) {
-  return new Request(url + route, { method, headers: { 'content-type': 'application/json', origin, ...(cookie ? { cookie } : {}) }, ...(body !== undefined ? { body: JSON.stringify(body) } : {}) });
+  return new Request(url + route, { method, headers: { 'content-type': 'application/json', 'x-luna-device-id': '11111111-1111-4111-8111-111111111111', origin, ...(cookie ? { cookie } : {}) }, ...(body !== undefined ? { body: JSON.stringify(body) } : {}) });
 }
 // Existing account feature checks now obtain users through authorization-code registration.
 async function createUser(req: Request) {

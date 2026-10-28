@@ -13,7 +13,7 @@ import { guardRequest } from './api-guard';
 import { POST as manualCreate } from '@/app/api/admin/users/route';
 import { ADMIN_SESSION_COOKIE, signAdminSession } from './admin-auth';
 const base = 'http://localhost:8080'; let directory: string;
-const req = (url: string, body?: unknown, cookie?: string) => new Request(base + url, { method: body ? 'POST' : 'GET', headers: { 'content-type': 'application/json', origin: base, 'x-real-ip': 'license-test', ...(cookie ? { cookie } : {}) }, ...(body ? { body: JSON.stringify(body) } : {}) });
+const req = (url: string, body?: unknown, cookie?: string) => new Request(base + url, { method: body ? 'POST' : 'GET', headers: { 'content-type': 'application/json', 'x-luna-device-id': '11111111-1111-4111-8111-111111111111', origin: base, 'x-real-ip': 'license-test', ...(cookie ? { cookie } : {}) }, ...(body ? { body: JSON.stringify(body) } : {}) });
 const cookieOf = (res: Response) => res.headers.getSetCookie().map(value => value.split(';')[0]).join('; ');
 beforeAll(async () => {
   directory = await fs.mkdtemp(path.join(os.tmpdir(), 'luna-codes-'));

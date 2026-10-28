@@ -1,3 +1,5 @@
+import { bindDevice, requestDevice, setDeviceCookie, DeviceError } from '@/lib/account-devices';
+import { recordAccountLogin } from '@/lib/account-login-state';
 import { NextResponse } from 'next/server';
 import { SESSION_COOKIE, checkRateLimit, sessionFromCookieHeader, signSession, checkPassword, clearRateLimit, isPasswordConfigured } from '@/lib/auth';
 import { accountConfigured, accountMode } from '@/lib/account-mode';
@@ -86,17 +88,26 @@ async function accountRequest(req: Request, path: string) {
     method: 'POST', headers, body: raw,
   }));
   if (path === '/sign-in/username' && response.ok) {
-    const { getAccountAuth, getAccountSession } = await import('@/lib/account-auth');
+    const { getAccountAuth, getAccountIdentity } = await import('@/lib/account-auth');
     const { accountAccess } = await import('@/lib/account-licenses');
     const sessionHeaders = new Headers(req.headers);
     sessionHeaders.set('cookie', response.headers.getSetCookie().map((value) => value.split(';')[0]).join('; '));
-    const session = await getAccountSession(sessionHeaders, true);
+    const session = await getAccountIdentity(sessionHeaders);
     if (!session) return NextResponse.json({ error: '账号不可用' }, { status: 401 });
     const { database } = await getAccountAuth();
     const access = accountAccess(database, session.user.id);
     if (access.state !== 'active') {
       database.prepare('DELETE FROM session WHERE id=?').run(session.session.id);
       return NextResponse.json({ error: access.state === 'expired' ? '账号授权已到期，请使用新的授权码续期' : '账号尚未激活，请使用授权码激活', code: 'AUTHORIZATION_REQUIRED', access }, { status: 403, headers: { 'Cache-Control': 'private, no-store' } });
+    }
+    try {
+      const identity = requestDevice(req.headers, true)!;
+      bindDevice(database, req, session.user.id, session.session.id, identity);
+      setDeviceCookie(response, req, identity);
+      recordAccountLogin(database, session.user.id, Date.now());
+    } catch (e) {
+      database.prepare('DELETE FROM session WHERE id=?').run(session.session.id);
+      return NextResponse.json({ error: e instanceof DeviceError ? e.message : '设备绑定失败，请稍后重试', code: 'DEVICE_BINDING_FAILED' }, { status: e instanceof DeviceError ? e.status : 500, headers: { 'Cache-Control': 'private, no-store' } });
     }
   }
   response.headers.set('Cache-Control', 'private, no-store');

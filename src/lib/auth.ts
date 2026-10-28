@@ -35,15 +35,15 @@ function hmac(payload: string): string {
 }
 
 // Media capabilities authorize only one URL, never other APIs or an arbitrary proxy target.
-export function signMediaURL(target: string, expiresAt: number): string {
-  return hmac(`media:v1:${expiresAt}:${target}`);
+export function signMediaURL(target: string, expiresAt: number, sessionId?: string | null): string {
+  return hmac(sessionId ? `media:v2:${sessionId}:${expiresAt}:${target}` : `media:v1:${expiresAt}:${target}`);
 }
 
-export function verifyMediaURL(target: string, expires: string | null, signature: string | null): boolean {
+export function verifyMediaURL(target: string, expires: string | null, signature: string | null, sessionId?: string | null): boolean {
   if (!(accountMode() ? accountConfigured() : isPasswordConfigured()) || !expires || !/^\d{13}$/.test(expires) || !signature || !/^[a-f0-9]{64}$/.test(signature)) return false;
   const deadline = Number(expires);
   if (deadline <= Date.now() || deadline > Date.now() + 6 * 60 * 60 * 1000) return false;
-  return crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(signMediaURL(target, deadline)));
+  return crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(signMediaURL(target, deadline, sessionId)));
 }
 
 /** 生成签名会话 token：`<expiresAtMs>.<hmac>` */

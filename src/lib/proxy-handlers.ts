@@ -1,3 +1,5 @@
+import { accountMode } from './account-mode';
+import { mediaSessionAllowed } from './account-media-session';
 import { NextResponse } from 'next/server';
 import { guardRequest, jsonError } from '@/lib/api-guard';
 import { checkLiveUrlAllowed, isBlockedByDNS, isValidProxyUrl } from '@/lib/ssrf';
@@ -72,7 +74,8 @@ export function decodePathTarget(encodedUrl: string): string {
 export async function handleProxyRequest(req: Request, targetUrl: string): Promise<Response> {
   const params = new URL(req.url).searchParams;
   const expires = params.get('mediaExpires');
-  const mediaAuthorized = verifyMediaURL(targetUrl, expires, params.get('mediaSignature'));
+  const mediaSession = params.get('mediaSession');
+  const mediaAuthorized = verifyMediaURL(targetUrl, expires, params.get('mediaSignature'), mediaSession) && (!accountMode() || await mediaSessionAllowed(mediaSession));
   const guarded = mediaAuthorized ? null : await guardRequest(req);
   if (guarded && !looksLikeImageUrl(targetUrl)) return guarded;
 
@@ -134,7 +137,7 @@ export async function handleProxyRequest(req: Request, targetUrl: string): Promi
     // Native players cannot run the web HLS loader; filter opted-in playlists here.
     const adFilter = params.get('adFilter') === '1';
     const mediaURL = mediaAuthorized || adFilter ? (target: string) =>
-      `/api/proxy?url=${encodeURIComponent(target)}${mediaAuthorized ? `&mediaExpires=${expires}&mediaSignature=${signMediaURL(target, Number(expires))}` : ''}${adFilter ? '&adFilter=1' : ''}` : undefined;
+      `/api/proxy?url=${encodeURIComponent(target)}${mediaAuthorized ? `&mediaExpires=${expires}&mediaSignature=${signMediaURL(target, Number(expires), mediaSession)}${mediaSession ? `&mediaSession=${encodeURIComponent(mediaSession)}` : ''}` : ''}${adFilter ? '&adFilter=1' : ''}` : undefined;
     return new NextResponse(rewriteM3u8(adFilter ? stripAdGroups(text) : text, finalUrl, 0, undefined, mediaURL), {
       status: response.status,
       headers: {

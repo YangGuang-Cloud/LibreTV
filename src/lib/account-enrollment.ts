@@ -1,7 +1,8 @@
 import crypto from 'node:crypto';
+import { bindDevice, requestDevice, setDeviceCookie, DeviceError } from './account-devices';
 import { recordAccountLogin } from './account-login-state';
 import { hashPassword } from 'better-auth/crypto';
-import { getAccountAuth, accountAuthHandler, getAccountSession } from './account-auth';
+import { getAccountAuth, accountAuthHandler, getAccountSession, getAccountIdentity } from './account-auth';
 import { validUsername, existingUsername, validPassword, AccountInputError } from './account-users';
 import { LicenseError, redeemLicense } from './account-licenses';
 import { passwordVaultKey, sealManagedPassword, writeManagedPassword } from './account-password-vault';
@@ -52,11 +53,15 @@ export async function enrollmentRequest(req: Request, kind: 'register' | 'redeem
       if (!loginResponse.ok) return reply({ error: '账号或密码错误，或账号已停用' }, 401);
       const sessionHeaders = new Headers(req.headers);
       sessionHeaders.set('cookie', loginResponse.headers.getSetCookie().map((value) => value.split(';')[0]).join('; '));
-      session = await getAccountSession(sessionHeaders, true);
+      session = await getAccountIdentity(sessionHeaders);
     }
     if (!session) return reply({ error: '请重新验证账号与密码' }, 401);
     let access;
-    try { access = redeemLicense(database, session.user.id, body.code); }
+    const identity = requestDevice(req.headers, true)!;
+    try { access = database.transaction(() => {
+      bindDevice(database, req, session!.user.id, session!.session.id, identity);
+      return redeemLicense(database, session!.user.id, body.code);
+    }).immediate(); }
     catch (error) {
       // Failed credential-based renewal must not leave an unused authenticated session behind.
       if (loginResponse) database.prepare('DELETE FROM session WHERE id=?').run(session.session.id);
@@ -64,7 +69,8 @@ export async function enrollmentRequest(req: Request, kind: 'register' | 'redeem
     }
     const response = reply({ success: true, access });
     if (loginResponse) for (const cookie of loginResponse.headers.getSetCookie()) response.headers.append('set-cookie', cookie);
+    setDeviceCookie(response, req, identity);
     if (loginResponse) recordAccountLogin(database, session.user.id, Date.now());
     clearRateLimit(key); return response;
-  } catch (error) { return reply({ error: error instanceof LicenseError || error instanceof AccountInputError ? error.message : '操作失败，请稍后重试' }, error instanceof LicenseError || error instanceof AccountInputError ? error.status : 500); }
+  } catch (error) { return reply({ error: error instanceof LicenseError || error instanceof AccountInputError || error instanceof DeviceError ? error.message : '操作失败，请稍后重试' }, error instanceof LicenseError || error instanceof AccountInputError || error instanceof DeviceError ? error.status : 500); }
 }

@@ -163,7 +163,7 @@ export function AdminAccountDetailView({ userId, revision, onSessionExpired, act
       {deleteError && <p role="alert" className="text-sm text-danger">{deleteError}</p>}
       {error && <p role="alert" className="text-sm text-danger">{error}<button className="btn-ghost ml-2" onClick={() => setReload((value) => value + 1)}>重试</button></p>}
       {loading && !current ? <p className="text-sm text-muted py-8 text-center" role="status">正在读取账号数据…</p> : current && <>
-        {visibleTotal === 0 ? <p className="text-sm text-muted py-8 text-center">暂无{sections.find((item) => item.key === section)?.label}</p> : <div key={`${section}-${offset}`} className="max-h-[55vh] overflow-y-auto overscroll-contain divide-y divide-line pr-1" aria-label={sections.find((item) => item.key === section)?.label} tabIndex={0}>
+        {visibleTotal === 0 ? <p className="text-sm text-muted py-8 text-center">暂无{sections.find((item) => item.key === section)?.label}</p> : <div key={`${section}-${offset}`} className="admin-scrollbar max-h-[55vh] overflow-y-auto overscroll-contain divide-y divide-line pr-2" aria-label={sections.find((item) => item.key === section)?.label} tabIndex={0}>
           {visibleRecords.map((row) => <AccountRecordRow key={`${userId}-${section}-${row.key}`} row={row} section={section} onDelete={() => void removeSearchRecord(row)} />)}
           {current.sessions.map((session, index) => {
             const device = describeSessionDevice(session.userAgent);

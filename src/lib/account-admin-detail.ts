@@ -49,12 +49,12 @@ export function readAccountDetail(database: Database.Database, userId: string, s
       const activityOrder = section === 'history' || section === 'search'
         ? "CASE WHEN json_type(value, '$.timestamp') IN ('integer','real') THEN json_extract(value, '$.timestamp') ELSE updatedAt END"
         : 'updatedAt';
-      const rows = database.prepare(`SELECT key, value, deleted, deletedAt, updatedAt FROM user_sync_data
-        WHERE userId=? AND collection=? ORDER BY ${activityOrder} DESC, updatedAt DESC, key LIMIT ? OFFSET ?`).all(userId, section, ACCOUNT_DETAIL_PAGE_SIZE, offset) as { key: string; value: string | null; deleted: number; deletedAt: number | null; updatedAt: number }[];
+      const rows = database.prepare(`SELECT key, value, deleted, deletedAt, updatedAt, version FROM user_sync_data
+        WHERE userId=? AND collection=? ORDER BY ${activityOrder} DESC, updatedAt DESC, key LIMIT ? OFFSET ?`).all(userId, section, ACCOUNT_DETAIL_PAGE_SIZE, offset) as { key: string; value: string | null; deleted: number; deletedAt: number | null; updatedAt: number; version: number }[];
       const lookup = database.prepare('SELECT value FROM user_sync_data WHERE userId=? AND collection=? AND key=?');
       for (const entry of rows) {
         const value: unknown = entry.value === null ? null : JSON.parse(entry.value);
-        const record: AdminAccountRecord = { key: entry.key, value, deleted: !!entry.deleted, deletedAt: entry.deletedAt, updatedAt: entry.updatedAt };
+        const record: AdminAccountRecord = { key: entry.key, value, deleted: !!entry.deleted, deletedAt: entry.deletedAt, updatedAt: entry.updatedAt, version: entry.version };
         if (section === 'progress' || section === 'favorite') {
           const related = lookup.get(userId, section === 'progress' ? 'history' : 'recent', section === 'progress' ? entry.key.slice(0, entry.key.lastIndexOf('_')) : entry.key) as { value: string | null } | undefined;
           if (related?.value) {

@@ -8,7 +8,7 @@ export interface AdminAccountUser {
 export type AdminAccountSection = SyncCollection | 'sessions';
 export interface AdminAccountRecord {
   key: string; value: unknown; deleted: boolean; deletedAt: number | null;
-  updatedAt: number; title?: string;
+  updatedAt: number; version: number; title?: string;
 }
 export interface AdminAccountSession {
   createdAt: number; updatedAt: number; expiresAt: number;

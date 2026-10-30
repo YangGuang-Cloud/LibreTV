@@ -1,7 +1,7 @@
 'use client';
 
 import { AdminDeviceManager } from './admin-device-manager';
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type { AdminAccountDetail, AdminAccountRecord, AdminAccountSection } from '@/lib/account-admin-model';
 import { describeSessionDevice } from '@/lib/session-device';
 
@@ -69,8 +69,13 @@ export function AdminAccountDetailView({ userId, revision, onSessionExpired, act
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
   const [reload, setReload] = useState(0);
+  const [deleteError, setDeleteError] = useState('');
+  const [pendingDeletes, setPendingDeletes] = useState<Map<string, AdminAccountRecord>>(new Map());
+  const deleting = useRef(new Map<string, AdminAccountRecord>());
+  const mutationGeneration = useRef(0);
   useEffect(() => {
     const controller = new AbortController();
+    const generation = mutationGeneration.current;
     setLoading(true); setError('');
     void (async () => {
       try {
@@ -81,7 +86,9 @@ export function AdminAccountDetailView({ userId, revision, onSessionExpired, act
         const body = await response.json();
         if (controller.signal.aborted) return;
         if (!response.ok) throw new Error(body.error || '账号详情读取失败');
+        if (generation !== mutationGeneration.current || deleting.current.size) return;
         setDetail(body);
+        if (offset > 0 && offset >= body.total) setOffset(Math.max(0, Math.ceil(body.total / body.limit) - 1) * body.limit);
       } catch (cause) { if (!controller.signal.aborted) setError(cause instanceof Error ? cause.message : '账号详情读取失败'); }
       finally { if (!controller.signal.aborted) setLoading(false); }
     })();
@@ -91,7 +98,34 @@ export function AdminAccountDetailView({ userId, revision, onSessionExpired, act
     const timer = setInterval(() => { if (document.visibilityState === 'visible') setReload((value) => value + 1); }, 20_000);
     return () => clearInterval(timer);
   }, []);
+  async function removeSearchRecord(row: AdminAccountRecord) {
+    if (deleting.current.has(row.key)) return;
+    deleting.current.set(row.key, row); mutationGeneration.current += 1;
+    setPendingDeletes(new Map(deleting.current)); setDeleteError('');
+    try {
+      const response = await fetch('/api/admin/users/search-history', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ userId, key: row.key, version: row.version }) });
+      if (response.status === 401) onSessionExpired();
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error || '删除失败，请重试');
+      setDetail((value) => {
+        if (!value || value.user.id !== userId) return value;
+        const isSearch = value.section === 'search';
+        return { ...value,
+          counts: { ...value.counts, search: { total: Math.max(0, value.counts.search.total - 1), deleted: Math.max(0, value.counts.search.deleted - (row.deleted ? 1 : 0)) } },
+          ...(isSearch ? { records: value.records.filter((item) => item.key !== row.key || item.version > row.version), total: Math.max(0, value.total - 1) } : {}),
+        };
+      });
+    } catch (cause) { setDeleteError(cause instanceof Error ? cause.message : '删除失败，请重试'); }
+    finally {
+      deleting.current.delete(row.key); mutationGeneration.current += 1;
+      setPendingDeletes(new Map(deleting.current));
+      if (!deleting.current.size) setReload((value) => value + 1);
+    }
+  }
   const current = detail?.section === section && detail.offset === offset ? detail : null;
+  const pendingVisible = current?.section === 'search' ? current.records.filter((row) => (pendingDeletes.get(row.key)?.version ?? -1) >= row.version) : [];
+  const visibleRecords = current?.records.filter((row) => section !== 'search' || (pendingDeletes.get(row.key)?.version ?? -1) < row.version) ?? [];
+  const visibleTotal = current ? Math.max(0, current.total - pendingVisible.length) : 0;
   return <div className="flex flex-col gap-5">
     {detail && <div className="card p-5 space-y-5">
       <div className="flex flex-wrap items-start justify-between gap-4">
@@ -121,20 +155,16 @@ export function AdminAccountDetailView({ userId, revision, onSessionExpired, act
       <div className="flex items-center justify-between gap-3"><h3 className="font-medium">账号数据</h3><button className="btn-ghost text-sm" disabled={loading} onClick={() => setReload((value) => value + 1)}>刷新</button></div>
       <div className="flex gap-2 overflow-x-auto pb-2" aria-label="账号数据分类">
         {sections.map((item) => <button key={item.key} aria-pressed={section === item.key} className={`${section === item.key ? 'btn-primary' : 'btn-ghost'} whitespace-nowrap text-sm`} onClick={() => { setSection(item.key); setOffset(0); }}>
-          {item.label}{detail && ` ${item.key === 'sessions' ? detail.activeSessions : detail.counts[item.key].total}`}
+          {item.label}{detail && ` ${item.key === 'sessions' ? detail.activeSessions : detail.counts[item.key].total - (item.key === 'search' ? pendingVisible.length : 0)}`}
         </button>)}
       </div>
       {section !== 'sessions' && <p className="text-xs text-muted">包含客户端已删除或超出显示上限的保留记录；同一条记录显示最后保存的内容。</p>}
       {section === 'sessions' && <p className="text-xs text-muted">仅展示尚未过期的登录会话，不代表设备当前在线。已退出或撤销的会话不会保留在此列表。</p>}
+      {deleteError && <p role="alert" className="text-sm text-danger">{deleteError}</p>}
       {error && <p role="alert" className="text-sm text-danger">{error}<button className="btn-ghost ml-2" onClick={() => setReload((value) => value + 1)}>重试</button></p>}
       {loading && !current ? <p className="text-sm text-muted py-8 text-center" role="status">正在读取账号数据…</p> : current && <>
-        {current.total === 0 ? <p className="text-sm text-muted py-8 text-center">暂无{sections.find((item) => item.key === section)?.label}</p> : <div key={`${section}-${offset}`} className="max-h-[55vh] overflow-y-auto overscroll-contain divide-y divide-line pr-1" aria-label={sections.find((item) => item.key === section)?.label} tabIndex={0}>
-          {current.records.map((row) => <article key={row.key} className="py-4 space-y-2">
-            <div className="flex flex-wrap items-center gap-2"><span className={`rounded px-2 py-0.5 text-xs ${row.deleted ? 'bg-danger/10 text-danger' : 'bg-accent/10 text-accent'}`}>{row.deleted ? '客户端已隐藏' : '当前保留'}</span>{row.deletedAt !== null && <span className="text-xs text-muted">隐藏时间：{accountDate(row.deletedAt)}</span>}</div>
-            <RecordContent row={row} section={section} />
-            {row.value === null && <p className="text-xs text-muted">此记录没有保留下来的原始内容。</p>}
-            <p className="text-xs text-muted">服务器更新时间：{accountDate(row.updatedAt)}</p>
-          </article>)}
+        {visibleTotal === 0 ? <p className="text-sm text-muted py-8 text-center">暂无{sections.find((item) => item.key === section)?.label}</p> : <div key={`${section}-${offset}`} className="max-h-[55vh] overflow-y-auto overscroll-contain divide-y divide-line pr-1" aria-label={sections.find((item) => item.key === section)?.label} tabIndex={0}>
+          {visibleRecords.map((row) => <AccountRecordRow key={`${userId}-${section}-${row.key}`} row={row} section={section} onDelete={() => void removeSearchRecord(row)} />)}
           {current.sessions.map((session, index) => {
             const device = describeSessionDevice(session.userAgent);
             return <article key={`${offset}-${index}`} className="py-4 space-y-2 text-sm">
@@ -147,11 +177,25 @@ export function AdminAccountDetailView({ userId, revision, onSessionExpired, act
             <p className="text-xs text-muted">会话更新：{accountDate(session.updatedAt)} · 到期：{accountDate(session.expiresAt)}</p>
           </article>; })}
         </div>}
-        {current.total > current.limit && <div className="flex flex-wrap items-center justify-between gap-3 text-sm">
-          <span className="text-muted">共 {current.total} 条 · 第 {Math.floor(offset / current.limit) + 1} / {Math.ceil(current.total / current.limit)} 页</span>
-          <div className="flex gap-2"><button className="btn-ghost" disabled={loading || offset === 0} onClick={() => setOffset(Math.max(0, offset - current.limit))}>上一页</button><button className="btn-ghost" disabled={loading || offset + current.limit >= current.total} onClick={() => setOffset(offset + current.limit)}>下一页</button></div>
+        {visibleTotal > current.limit && <div className="flex flex-wrap items-center justify-between gap-3 text-sm">
+          <span className="text-muted">共 {visibleTotal} 条 · 第 {Math.floor(offset / current.limit) + 1} / {Math.ceil(visibleTotal / current.limit)} 页</span>
+          <div className="flex gap-2"><button className="btn-ghost" disabled={loading || offset === 0} onClick={() => setOffset(Math.max(0, offset - current.limit))}>上一页</button><button className="btn-ghost" disabled={loading || offset + current.limit >= visibleTotal} onClick={() => setOffset(offset + current.limit)}>下一页</button></div>
         </div>}
       </>}
     </div>
   </div>;
+}
+
+function AccountRecordRow({ row, section, onDelete }: {
+  row: AdminAccountRecord; section: AdminAccountSection; onDelete: () => void;
+}) {
+  return <article className="py-4 flex items-center gap-4">
+    <div className="min-w-0 flex-1 space-y-2">
+      <div className="flex flex-wrap items-center gap-2"><span className={`rounded px-2 py-0.5 text-xs ${row.deleted ? 'bg-danger/10 text-danger' : 'bg-accent/10 text-accent'}`}>{row.deleted ? '客户端已隐藏' : '当前保留'}</span>{row.deletedAt !== null && <span className="text-xs text-muted">隐藏时间：{accountDate(row.deletedAt)}</span>}</div>
+      <RecordContent row={row} section={section} />
+      {row.value === null && <p className="text-xs text-muted">此记录没有保留下来的原始内容。</p>}
+      <p className="text-xs text-muted">服务器更新时间：{accountDate(row.updatedAt)}</p>
+    </div>
+    {section === 'search' && <button className="btn-ghost text-sm shrink-0 text-danger" aria-label={`删除搜索记录 ${text(object(row.value).text, row.key)}`} onClick={onDelete}>删除</button>}
+  </article>;
 }
